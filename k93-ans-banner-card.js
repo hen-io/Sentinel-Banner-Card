@@ -174,10 +174,32 @@ class K93AnsBannerCard extends HTMLElement {
     `;
   }
 
+  _channelColor(record) {
+    const hass = this._hass;
+    if (!hass) return "";
+    const cached = this._channelSensorId && hass.states[this._channelSensorId];
+    const channels = cached
+      ? cached.attributes.channels
+      : (() => {
+          for (const stateObj of Object.values(hass.states)) {
+            if (stateObj.entity_id.startsWith("sensor.k93_ans") && Array.isArray(stateObj.attributes?.channels)) {
+              this._channelSensorId = stateObj.entity_id;
+              return stateObj.attributes.channels;
+            }
+          }
+          return null;
+        })();
+    if (!Array.isArray(channels)) return "";
+    const recordChannel = String(record.channel || "").toLowerCase();
+    const match = channels.find((c) => String(c.key).toLowerCase() === recordChannel);
+    return (match && match.color) || "";
+  }
+
   _tickerItemHtml(record, locale, lang) {
     const icon = record.icon || "mdi:bell-outline";
+    const channelColor = this._channelColor(record);
     const iconHtml = icon.startsWith("mdi:")
-      ? `<ha-icon class="ticker-icon" icon="${esc(icon)}"></ha-icon>`
+      ? `<ha-icon class="ticker-icon" icon="${esc(icon)}"${channelColor ? ` style="color: ${esc(channelColor)};"` : ""}></ha-icon>`
       : `<img class="ticker-icon-img" src="${esc(icon)}" alt="" />`;
     return (
       `<span class="ticker-item">${iconHtml}` +
