@@ -4,8 +4,8 @@ const BUILTIN_CHANNEL_KEYS = ["info", "alert", "event", "reminder", "security", 
 const LOCALE_TAG = { en: "en", no: "nb-NO" };
 
 const STRINGS = {
-  en: { today: "Today", yesterday: "Yesterday" },
-  no: { today: "I dag", yesterday: "I går" },
+  en: { yesterday: "Yesterday" },
+  no: { yesterday: "I går" },
 };
 
 function esc(value) {
@@ -22,8 +22,11 @@ function importanceRank(level) {
 function matchesFilter(record, channels, minImportance, channelMode) {
   if (record.show_in_history === false) return false;
   const hasList = Boolean(channels && channels.length);
-  const recordChannel = String(record.channel || "").toLowerCase();
-  const inList = hasList && channels.some((c) => String(c).toLowerCase() === recordChannel);
+  const recordChannels = (Array.isArray(record.channels) && record.channels.length
+    ? record.channels
+    : [record.channel]
+  ).map((c) => String(c || "").toLowerCase());
+  const inList = hasList && channels.some((c) => recordChannels.includes(String(c).toLowerCase()));
   const channelOk = channelMode === "exclude" ? !inList : !hasList || inList;
   const importanceOk = importanceRank(record.importance) >= importanceRank(minImportance || "low");
   return channelOk && importanceOk;
@@ -35,14 +38,13 @@ function formatRelativeTime(iso, locale, lang) {
   if (Number.isNaN(date.getTime())) return iso;
 
   const strings = STRINGS[lang] || STRINGS.en;
-  const time = date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+  const time = date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false });
   const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const diffDays = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86400000);
 
-  if (diffDays === 0) return `${strings.today} ${time}`;
+  if (diffDays === 0) return time;
   if (diffDays === 1) return `${strings.yesterday} ${time}`;
-  if (diffDays > 1 && diffDays < 7) return `${date.toLocaleDateString(locale, { weekday: "long" })} ${time}`;
-  return `${date.toLocaleDateString(locale)} ${time}`;
+  return `${date.toLocaleDateString(locale, { weekday: "long" })} ${time}`;
 }
 
 class K93AnsBannerCard extends HTMLElement {
@@ -101,11 +103,21 @@ class K93AnsBannerCard extends HTMLElement {
     return 1;
   }
 
+  connectedCallback() {
+    if (!this._clockInterval) {
+      this._clockInterval = setInterval(() => this._render(), 30000);
+    }
+  }
+
   disconnectedCallback() {
     if (this._unsubscribe) {
       this._unsubscribe();
       this._unsubscribe = null;
       this._subscribed = false;
+    }
+    if (this._clockInterval) {
+      clearInterval(this._clockInterval);
+      this._clockInterval = null;
     }
   }
 
