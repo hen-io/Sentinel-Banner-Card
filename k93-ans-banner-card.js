@@ -19,7 +19,19 @@ function importanceRank(level) {
   return idx === -1 ? IMPORTANCE_LEVELS.indexOf("normal") : idx;
 }
 
-function matchesFilter(record, channels, minImportance, channelMode) {
+const CHANNEL_IMPORTANCE_PREFIX = "channel_importance__";
+
+function perChannelImportanceFromConfig(cfg) {
+  const map = {};
+  for (const key of Object.keys(cfg || {})) {
+    if (key.startsWith(CHANNEL_IMPORTANCE_PREFIX) && cfg[key]) {
+      map[key.slice(CHANNEL_IMPORTANCE_PREFIX.length)] = cfg[key];
+    }
+  }
+  return map;
+}
+
+function matchesFilter(record, channels, minImportance, channelMode, perChannelImportance) {
   if (record.show_in_history === false) return false;
   const hasList = Boolean(channels && channels.length);
   const recordChannels = (Array.isArray(record.channels) && record.channels.length
@@ -28,8 +40,19 @@ function matchesFilter(record, channels, minImportance, channelMode) {
   ).map((c) => String(c || "").toLowerCase());
   const inList = hasList && channels.some((c) => recordChannels.includes(String(c).toLowerCase()));
   const channelOk = channelMode === "exclude" ? !inList : !hasList || inList;
-  const importanceOk = importanceRank(record.importance) >= importanceRank(minImportance || "low");
-  return channelOk && importanceOk;
+  if (!channelOk) return false;
+
+  const recordRank = importanceRank(record.importance);
+  if (channelMode !== "exclude" && hasList && perChannelImportance) {
+    const selectedLower = channels.map((c) => String(c).toLowerCase());
+    const matchingChannels = recordChannels.filter((c) => selectedLower.includes(c));
+    return matchingChannels.some((c) => {
+      const threshold = perChannelImportance[c] || minImportance || "low";
+      return recordRank >= importanceRank(threshold);
+    });
+  }
+
+  return recordRank >= importanceRank(minImportance || "low");
 }
 
 function formatRelativeTime(iso, locale, lang) {
@@ -44,7 +67,9 @@ function formatRelativeTime(iso, locale, lang) {
 
   if (diffDays === 0) return time;
   if (diffDays === 1) return `${strings.yesterday} ${time}`;
-  return `${date.toLocaleDateString(locale, { weekday: "long" })} ${time}`;
+  const weekday = date.toLocaleDateString(locale, { weekday: "long" });
+  const capitalizedWeekday = weekday.charAt(0).toUpperCase() + weekday.slice(1);
+  return `${capitalizedWeekday} ${time}`;
 }
 
 class K93AnsBannerCard extends HTMLElement {
@@ -222,7 +247,7 @@ class K93AnsBannerCard extends HTMLElement {
   _renderTicker(locale, lang) {
     const cfg = this._config;
     const items = (this._notifications || [])
-      .filter((n) => matchesFilter(n, cfg.channels, cfg.min_importance, cfg.channels_mode))
+      .filter((n) => matchesFilter(n, cfg.channels, cfg.min_importance, cfg.channels_mode, perChannelImportanceFromConfig(cfg)))
       .slice(0, cfg.ticker_limit ?? 10);
 
     if (!items.length) return "";
@@ -414,7 +439,14 @@ class K93AnsBannerCardEditor extends HTMLElement {
   connectedCallback() {
     if (!this._form) {
       this._form = document.createElement("ha-form");
-      this._form.computeLabel = (item) => K93AnsBannerCardEditor.LABELS[item.name] || item.name;
+      this._form.computeLabel = (item) => {
+        if (item.name.startsWith(CHANNEL_IMPORTANCE_PREFIX)) {
+          const channelKey = item.name.slice(CHANNEL_IMPORTANCE_PREFIX.length);
+          const option = this._channelOptions().find((o) => o.value === channelKey);
+          return `${option ? option.label : channelKey}: minimum importance`;
+        }
+        return K93AnsBannerCardEditor.LABELS[item.name] || item.name;
+      };
       this._form.addEventListener("value-changed", (ev) => {
         ev.stopPropagation();
         this._config = ev.detail.value;
@@ -482,6 +514,17 @@ class K93AnsBannerCardEditor extends HTMLElement {
       },
     };
 
+    const perChannelImportanceSelector = {
+      select: { options: [{ value: "", label: "(use global default)" }, ...importanceOptions] },
+    };
+    const selectedChannels = (this._config?.channels_mode || "include") !== "exclude"
+      ? (this._config?.channels || [])
+      : [];
+    const perChannelImportanceFields = selectedChannels.map((channelKey) => ({
+      name: `${CHANNEL_IMPORTANCE_PREFIX}${channelKey}`,
+      selector: perChannelImportanceSelector,
+    }));
+
     return [
       { name: "title_icon", selector: { icon: {} } },
       {
@@ -494,6 +537,7 @@ class K93AnsBannerCardEditor extends HTMLElement {
       { name: "channels_mode", selector: channelModeSelector },
       { name: "channels", selector: channelSelector },
       { name: "min_importance", selector: { select: { options: importanceOptions } } },
+      ...perChannelImportanceFields,
       { name: "ticker_limit", selector: { number: { min: 1, max: 500, mode: "box" } } },
       {
         name: "ticker_font_size",
