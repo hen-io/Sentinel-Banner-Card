@@ -3,6 +3,54 @@ const IMPORTANCE_LEVELS = ["low", "normal", "high", "critical"];
 const BUILTIN_CHANNEL_KEYS = ["info", "alert", "event", "reminder", "security", "system"];
 const LOCALE_TAG = { en: "en", no: "nb-NO" };
 
+function fireDomEvent(node, type, detail) {
+  const event = new CustomEvent(type, { bubbles: true, cancelable: false, composed: true, detail });
+  node.dispatchEvent(event);
+  return event;
+}
+
+function handleTapAction(node, hass, actionConfig) {
+  const config = actionConfig || { action: "none" };
+  switch (config.action) {
+    case "navigate":
+      if (config.navigation_path) {
+        if (config.navigation_replace) {
+          history.replaceState(null, "", config.navigation_path);
+        } else {
+          history.pushState(null, "", config.navigation_path);
+        }
+        fireDomEvent(window, "location-changed", { replace: Boolean(config.navigation_replace) });
+      }
+      break;
+    case "url":
+      if (config.url_path) {
+        window.open(config.url_path, config.new_tab === false ? "_self" : "_blank");
+      }
+      break;
+    case "more-info":
+      if (config.entity) {
+        fireDomEvent(node, "hass-more-info", { entityId: config.entity });
+      }
+      break;
+    case "toggle":
+      if (config.entity && hass) {
+        hass.callService("homeassistant", "toggle", {}, { entity_id: config.entity });
+      }
+      break;
+    case "call-service":
+    case "perform-action": {
+      const serviceStr = config.perform_action || config.service;
+      if (serviceStr && hass) {
+        const [domain, service] = serviceStr.split(".");
+        hass.callService(domain, service, config.data || config.service_data || {}, config.target);
+      }
+      break;
+    }
+    default:
+      break;
+  }
+}
+
 const STRINGS = {
   en: { yesterday: "Yesterday" },
   no: { yesterday: "I går" },
@@ -100,6 +148,7 @@ class K93AnsBannerCard extends HTMLElement {
       card_border_radius: null,
       card_border_color: null,
       card_border_width: null,
+      tap_action: { action: "none" },
       ...config,
     };
     this._render();
@@ -303,6 +352,7 @@ class K93AnsBannerCard extends HTMLElement {
           align-items: center;
           overflow: hidden;
         }
+        ha-card.tappable { cursor: pointer; }
         .title-icon {
           display: inline-flex;
           align-items: center;
@@ -384,6 +434,11 @@ class K93AnsBannerCard extends HTMLElement {
       this._built = true;
       this._cardEl = this.shadowRoot.querySelector("ha-card");
       this._tickerHostEl = this.shadowRoot.querySelector(".ticker-host");
+      this._cardEl.addEventListener("click", () => {
+        if (this._config?.tap_action?.action) {
+          handleTapAction(this, this._hass, this._config.tap_action);
+        }
+      });
     }
 
     if (cardThemeStyles.length) {
@@ -391,6 +446,9 @@ class K93AnsBannerCard extends HTMLElement {
     } else {
       this._cardEl.removeAttribute("style");
     }
+
+    const hasTapAction = Boolean(cfg.tap_action && cfg.tap_action.action && cfg.tap_action.action !== "none");
+    this._cardEl.classList.toggle("tappable", hasTapAction);
 
     if (tickerHtml !== this._lastTickerHtml) {
       this._lastTickerHtml = tickerHtml;
@@ -417,6 +475,7 @@ class K93AnsBannerCard extends HTMLElement {
       card_border_radius: null,
       card_border_color: null,
       card_border_width: null,
+      tap_action: { action: "none" },
     };
   }
 
@@ -562,6 +621,7 @@ class K93AnsBannerCardEditor extends HTMLElement {
         name: "card_border_width",
         selector: { number: { min: 0, max: 20, step: 1, mode: "box", unit_of_measurement: "px" } },
       },
+      { name: "tap_action", selector: { ui_action: {} } },
     ];
   }
 
@@ -596,6 +656,7 @@ K93AnsBannerCardEditor.LABELS = {
   card_border_radius: "Card corner radius override (px, blank = theme default)",
   card_border_color: "Card border color override (CSS color, blank = theme default)",
   card_border_width: "Card border width override (px, blank = theme default)",
+  tap_action: "Tap action",
 };
 
 customElements.define("k93-ans-banner-card", K93AnsBannerCard);
