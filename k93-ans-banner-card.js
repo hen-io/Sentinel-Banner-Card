@@ -138,6 +138,7 @@ class K93AnsBannerCard extends HTMLElement {
       unacknowledged_icon: null,
       unacknowledged_icon_color: null,
       unacknowledged_pulse_color: null,
+      unacknowledged_pulse_size: 1.8,
       language: "auto",
       channels: [],
       channels_mode: "include",
@@ -259,7 +260,10 @@ class K93AnsBannerCard extends HTMLElement {
     const background = cfg.title_icon_background || "transparent";
     const pulseColor = hasUnacknowledged ? cfg.unacknowledged_pulse_color : "";
     const pulseClass = pulseColor ? " pulsing" : "";
-    const pulseStyle = pulseColor ? ` --k93-pulse-color: ${esc(pulseColor)};` : "";
+    const pulseSize = Number(cfg.unacknowledged_pulse_size) || 1.8;
+    const pulseStyle = pulseColor
+      ? ` --k93-pulse-color: ${esc(pulseColor)}; --k93-pulse-scale: ${pulseSize};`
+      : "";
     return `
       <span class="title-icon${pulseClass}" style="width: ${size}px; height: ${size}px; background: ${esc(background)};${pulseStyle}">
         <ha-icon icon="${esc(icon)}" style="color: ${esc(color)}; --mdc-icon-size: ${Math.round(size * 0.6)}px;"></ha-icon>
@@ -388,7 +392,7 @@ class K93AnsBannerCard extends HTMLElement {
         }
         @keyframes k93-radar-ping {
           0% { transform: scale(1); opacity: 0.6; }
-          100% { transform: scale(2.2); opacity: 0; }
+          100% { transform: scale(var(--k93-pulse-scale, 1.8)); opacity: 0; }
         }
         .ticker-wrap {
           display: flex;
@@ -495,6 +499,7 @@ class K93AnsBannerCard extends HTMLElement {
       unacknowledged_icon: null,
       unacknowledged_icon_color: null,
       unacknowledged_pulse_color: null,
+      unacknowledged_pulse_size: 1.8,
       language: "auto",
       channels: [],
       channels_mode: "include",
@@ -628,6 +633,10 @@ class K93AnsBannerCardEditor extends HTMLElement {
       { name: "unacknowledged_icon", selector: { icon: {} } },
       { name: "unacknowledged_icon_color", selector: { text: {} } },
       { name: "unacknowledged_pulse_color", selector: { text: {} } },
+      {
+        name: "unacknowledged_pulse_size",
+        selector: { number: { min: 1.1, max: 4, step: 0.1, mode: "box" } },
+      },
       { name: "language", selector: languageSelector },
       { name: "channels_mode", selector: channelModeSelector },
       { name: "channels", selector: channelSelector },
@@ -682,6 +691,7 @@ K93AnsBannerCardEditor.LABELS = {
   unacknowledged_icon: "Icon while unacknowledged notifications exist (blank = keep title icon)",
   unacknowledged_icon_color: "Icon color while unacknowledged (CSS color, blank = title icon color)",
   unacknowledged_pulse_color: "Pulsing radar effect color while unacknowledged (CSS color, blank = no pulse)",
+  unacknowledged_pulse_size: "Pulsing radar effect max size (x badge size)",
   language: "Language",
   channels_mode: "Channel filter mode",
   channels: "Channels (empty = no filter; suggests configured channels)",
