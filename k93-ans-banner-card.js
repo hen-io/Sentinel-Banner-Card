@@ -274,7 +274,7 @@ class K93AnsBannerCard extends HTMLElement {
     const color = (hasUnacknowledged && cfg.unacknowledged_icon_color) || cfg.title_icon_color || "var(--primary-text-color)";
     const background = cfg.title_icon_background || "transparent";
     const pulseClass = pulseColor ? " pulsing" : "";
-    const pulseSize = Number(cfg.unacknowledged_pulse_size) || 1.8;
+    const pulseSize = Math.max(1.1, Number(cfg.unacknowledged_pulse_size) || 1.8);
     const pulseStyle = pulseColor
       ? ` --k93-pulse-color: ${esc(pulseColor)}; --k93-pulse-scale: ${pulseSize};`
       : "";
@@ -404,7 +404,8 @@ class K93AnsBannerCard extends HTMLElement {
           inset: 0;
           border-radius: 999px;
           background: var(--k93-pulse-color);
-          animation: k93-radar-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+          animation: k93-radar-ping 3s cubic-bezier(0, 0, 0.2, 1) infinite;
+          animation-fill-mode: backwards;
         }
         .title-icon.pulsing::after {
           animation-delay: 1s;
