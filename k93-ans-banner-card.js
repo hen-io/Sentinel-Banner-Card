@@ -67,6 +67,19 @@ function importanceRank(level) {
   return idx === -1 ? IMPORTANCE_LEVELS.indexOf("normal") : idx;
 }
 
+function fontStyleToCss(value) {
+  switch (value) {
+    case "bold":
+      return { weight: "bold", style: "normal" };
+    case "italic":
+      return { weight: "normal", style: "italic" };
+    case "bold_italic":
+      return { weight: "bold", style: "italic" };
+    default:
+      return { weight: "normal", style: "normal" };
+  }
+}
+
 const CHANNEL_IMPORTANCE_PREFIX = "channel_importance__";
 
 function perChannelImportanceFromConfig(cfg) {
@@ -147,6 +160,10 @@ class K93AnsBannerCard extends HTMLElement {
       min_importance: "low",
       ticker_limit: 10,
       ticker_font_size: 1,
+      ticker_text_color: null,
+      ticker_font_family: null,
+      ticker_font_style: "regular",
+      ticker_icon_size: 1,
       ticker_speed: 1,
       max_items: 50,
       card_height: null,
@@ -275,14 +292,17 @@ class K93AnsBannerCard extends HTMLElement {
     const size = Number(cfg.title_icon_size) || 24;
     const color = (hasUnacknowledged && cfg.unacknowledged_icon_color) || cfg.title_icon_color || "var(--primary-text-color)";
     const background = cfg.title_icon_background || "transparent";
-    const pulseEffect = ["radar", "ring", "glow"].includes(cfg.unacknowledged_pulse_effect)
+    const pulseEffect = ["radar", "ring", "glow", "flash", "outline", "shake"].includes(
+      cfg.unacknowledged_pulse_effect
+    )
       ? cfg.unacknowledged_pulse_effect
       : "radar";
     const pulseClass = pulseColor ? ` pulsing effect-${pulseEffect}` : "";
     const pulseSize = Math.max(1.1, Number(cfg.unacknowledged_pulse_size) || 1.8);
     const pulseSpeed = Math.max(0.3, Number(cfg.unacknowledged_pulse_speed) || 2);
     const pulseStyle = pulseColor
-      ? ` --k93-pulse-color: ${esc(pulseColor)}; --k93-pulse-scale: ${pulseSize}; --k93-pulse-duration: ${pulseSpeed}s;`
+      ? ` --k93-pulse-color: ${esc(pulseColor)}; --k93-pulse-scale: ${pulseSize};` +
+        ` --k93-pulse-duration: ${pulseSpeed}s; --k93-icon-bg: ${esc(background)};`
       : "";
     const iconHtml = icon
       ? `<ha-icon icon="${esc(icon)}" style="color: ${esc(color)}; --mdc-icon-size: ${Math.round(size * 0.6)}px;"></ha-icon>`
@@ -346,12 +366,20 @@ class K93AnsBannerCard extends HTMLElement {
     const baseLoopSeconds = Math.min(items.length * 5, 120);
     const duration = Math.max(4, baseLoopSeconds / speed);
     const fontSize = Number(cfg.ticker_font_size) || 1;
+    const iconScale = Number(cfg.ticker_icon_size) || 1;
+    const { weight: fontWeight, style: fontStyle } = fontStyleToCss(cfg.ticker_font_style);
+    const trackStyle =
+      `animation-duration: ${duration}s; font-size: ${fontSize}em;` +
+      ` --k93-ticker-icon-scale: ${iconScale};` +
+      ` --k93-ticker-font-weight: ${fontWeight}; --k93-ticker-font-style: ${fontStyle};` +
+      (cfg.ticker_text_color ? ` --k93-ticker-text-color: ${esc(cfg.ticker_text_color)};` : "") +
+      (cfg.ticker_font_family ? ` --k93-ticker-font-family: ${esc(cfg.ticker_font_family)};` : "");
 
     return `
       <div class="ticker-wrap">
         ${iconHtml}
         <div class="ticker-viewport">
-          <div class="ticker-track" style="animation-duration: ${duration}s; font-size: ${fontSize}em;">
+          <div class="ticker-track" style="${trackStyle}">
             ${group}${group}
           </div>
         </div>
@@ -434,6 +462,37 @@ class K93AnsBannerCard extends HTMLElement {
           0%, 100% { opacity: 0.25; }
           50% { opacity: 0.75; }
         }
+        .title-icon.pulsing.effect-flash {
+          animation: k93-flash-pulse var(--k93-pulse-duration, 2s) ease-in-out infinite;
+        }
+        @keyframes k93-flash-pulse {
+          0%, 100% { background: var(--k93-icon-bg, transparent); }
+          50% { background: var(--k93-pulse-color); }
+        }
+        .title-icon.pulsing.effect-outline::before {
+          content: "";
+          position: absolute;
+          inset: -3px;
+          border-radius: 999px;
+          border: 2px solid var(--k93-pulse-color);
+          animation: k93-outline-pulse var(--k93-pulse-duration, 2s) ease-in-out infinite;
+        }
+        @keyframes k93-outline-pulse {
+          0%, 100% { opacity: 0.3; }
+          50% { opacity: 1; }
+        }
+        .title-icon.pulsing.effect-shake {
+          animation: k93-shake var(--k93-pulse-duration, 2s) ease-in-out infinite;
+        }
+        @keyframes k93-shake {
+          0%, 100% { transform: rotate(0deg); }
+          10% { transform: rotate(-12deg); }
+          20% { transform: rotate(10deg); }
+          30% { transform: rotate(-8deg); }
+          40% { transform: rotate(6deg); }
+          50% { transform: rotate(-3deg); }
+          60%, 100% { transform: rotate(0deg); }
+        }
         .ticker-wrap {
           display: flex;
           align-items: center;
@@ -456,7 +515,10 @@ class K93AnsBannerCard extends HTMLElement {
           animation-name: k93-ticker;
           animation-timing-function: linear;
           animation-iteration-count: infinite;
-          color: var(--primary-text-color);
+          color: var(--k93-ticker-text-color, var(--primary-text-color));
+          font-family: var(--k93-ticker-font-family, inherit);
+          font-weight: var(--k93-ticker-font-weight, normal);
+          font-style: var(--k93-ticker-font-style, normal);
           line-height: 1.4;
         }
         .ticker-item {
@@ -472,19 +534,19 @@ class K93AnsBannerCard extends HTMLElement {
           line-height: 1;
         }
         .ticker-icon {
-          --mdc-icon-size: 1em;
+          --mdc-icon-size: calc(1em * var(--k93-ticker-icon-scale, 1));
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: 1em;
-          height: 1em;
-          color: var(--primary-text-color);
+          width: calc(1em * var(--k93-ticker-icon-scale, 1));
+          height: calc(1em * var(--k93-ticker-icon-scale, 1));
+          color: var(--k93-ticker-text-color, var(--primary-text-color));
           flex-shrink: 0;
         }
         .ticker-icon-img {
           display: inline-block;
-          width: 1em;
-          height: 1em;
+          width: calc(1em * var(--k93-ticker-icon-scale, 1));
+          height: calc(1em * var(--k93-ticker-icon-scale, 1));
           border-radius: 50%;
           object-fit: cover;
           flex-shrink: 0;
@@ -548,6 +610,10 @@ class K93AnsBannerCard extends HTMLElement {
       min_importance: "low",
       ticker_limit: 10,
       ticker_font_size: 1,
+      ticker_text_color: null,
+      ticker_font_family: null,
+      ticker_font_style: "regular",
+      ticker_icon_size: 1,
       ticker_speed: 1,
       max_items: 50,
       card_height: null,
@@ -683,6 +749,9 @@ class K93AnsBannerCardEditor extends HTMLElement {
               { value: "radar", label: "Radar (two expanding rings)" },
               { value: "ring", label: "Ring (single expanding ring)" },
               { value: "glow", label: "Glow (soft breathing glow)" },
+              { value: "flash", label: "Flash (badge flashes to the pulse color)" },
+              { value: "outline", label: "Outline (fixed-size ring, pulses opacity)" },
+              { value: "shake", label: "Shake (badge wiggles side to side)" },
             ],
           },
         },
@@ -703,6 +772,25 @@ class K93AnsBannerCardEditor extends HTMLElement {
       { name: "ticker_limit", selector: { number: { min: 1, max: 500, mode: "box" } } },
       {
         name: "ticker_font_size",
+        selector: { number: { min: 0.5, max: 3, step: 0.05, mode: "box" } },
+      },
+      { name: "ticker_text_color", selector: { text: {} } },
+      { name: "ticker_font_family", selector: { text: {} } },
+      {
+        name: "ticker_font_style",
+        selector: {
+          select: {
+            options: [
+              { value: "regular", label: "Regular" },
+              { value: "bold", label: "Bold" },
+              { value: "italic", label: "Italic" },
+              { value: "bold_italic", label: "Bold italic" },
+            ],
+          },
+        },
+      },
+      {
+        name: "ticker_icon_size",
         selector: { number: { min: 0.5, max: 3, step: 0.05, mode: "box" } },
       },
       {
@@ -758,6 +846,10 @@ K93AnsBannerCardEditor.LABELS = {
   min_importance: "Minimum importance",
   ticker_limit: "Max items in rotation",
   ticker_font_size: "Font size (em)",
+  ticker_text_color: "Ticker text color (CSS color, blank = theme text color)",
+  ticker_font_family: "Ticker font family (CSS font-family, blank = theme default)",
+  ticker_font_style: "Ticker text style",
+  ticker_icon_size: "Per-notification icon size (x text size)",
   ticker_speed: "Scroll speed (x)",
   max_items: "Max records fetched",
   card_height: "Card height (px, blank = auto-fit to the ticker line)",
