@@ -138,7 +138,9 @@ class K93AnsBannerCard extends HTMLElement {
       unacknowledged_icon: null,
       unacknowledged_icon_color: null,
       unacknowledged_pulse_color: null,
+      unacknowledged_pulse_effect: "radar",
       unacknowledged_pulse_size: 1.8,
+      unacknowledged_pulse_speed: 2,
       language: "auto",
       channels: [],
       channels_mode: "include",
@@ -273,10 +275,14 @@ class K93AnsBannerCard extends HTMLElement {
     const size = Number(cfg.title_icon_size) || 24;
     const color = (hasUnacknowledged && cfg.unacknowledged_icon_color) || cfg.title_icon_color || "var(--primary-text-color)";
     const background = cfg.title_icon_background || "transparent";
-    const pulseClass = pulseColor ? " pulsing" : "";
+    const pulseEffect = ["radar", "ring", "glow"].includes(cfg.unacknowledged_pulse_effect)
+      ? cfg.unacknowledged_pulse_effect
+      : "radar";
+    const pulseClass = pulseColor ? ` pulsing effect-${pulseEffect}` : "";
     const pulseSize = Math.max(1.1, Number(cfg.unacknowledged_pulse_size) || 1.8);
+    const pulseSpeed = Math.max(0.3, Number(cfg.unacknowledged_pulse_speed) || 2);
     const pulseStyle = pulseColor
-      ? ` --k93-pulse-color: ${esc(pulseColor)}; --k93-pulse-scale: ${pulseSize};`
+      ? ` --k93-pulse-color: ${esc(pulseColor)}; --k93-pulse-scale: ${pulseSize}; --k93-pulse-duration: ${pulseSpeed}s;`
       : "";
     const iconHtml = icon
       ? `<ha-icon icon="${esc(icon)}" style="color: ${esc(color)}; --mdc-icon-size: ${Math.round(size * 0.6)}px;"></ha-icon>`
@@ -397,22 +403,36 @@ class K93AnsBannerCard extends HTMLElement {
           position: relative;
           z-index: 1;
         }
-        .title-icon.pulsing::before,
-        .title-icon.pulsing::after {
+        .title-icon.pulsing.effect-radar::before,
+        .title-icon.pulsing.effect-radar::after,
+        .title-icon.pulsing.effect-ring::before {
           content: "";
           position: absolute;
           inset: 0;
           border-radius: 999px;
           background: var(--k93-pulse-color);
-          animation: k93-radar-ping 3s cubic-bezier(0, 0, 0.2, 1) infinite;
+          animation: k93-radar-ping var(--k93-pulse-duration, 2s) cubic-bezier(0, 0, 0.2, 1) infinite;
           animation-fill-mode: backwards;
         }
-        .title-icon.pulsing::after {
-          animation-delay: 1s;
+        .title-icon.pulsing.effect-radar::after {
+          animation-delay: calc(var(--k93-pulse-duration, 2s) / 2);
         }
         @keyframes k93-radar-ping {
           0% { transform: scale(1); opacity: 0.6; }
           100% { transform: scale(var(--k93-pulse-scale, 1.8)); opacity: 0; }
+        }
+        .title-icon.pulsing.effect-glow::before {
+          content: "";
+          position: absolute;
+          inset: -6px;
+          border-radius: 999px;
+          background: var(--k93-pulse-color);
+          filter: blur(6px);
+          animation: k93-glow-pulse var(--k93-pulse-duration, 2s) ease-in-out infinite;
+        }
+        @keyframes k93-glow-pulse {
+          0%, 100% { opacity: 0.25; }
+          50% { opacity: 0.75; }
         }
         .ticker-wrap {
           display: flex;
@@ -519,7 +539,9 @@ class K93AnsBannerCard extends HTMLElement {
       unacknowledged_icon: null,
       unacknowledged_icon_color: null,
       unacknowledged_pulse_color: null,
+      unacknowledged_pulse_effect: "radar",
       unacknowledged_pulse_size: 1.8,
+      unacknowledged_pulse_speed: 2,
       language: "auto",
       channels: [],
       channels_mode: "include",
@@ -654,8 +676,24 @@ class K93AnsBannerCardEditor extends HTMLElement {
       { name: "unacknowledged_icon_color", selector: { text: {} } },
       { name: "unacknowledged_pulse_color", selector: { text: {} } },
       {
+        name: "unacknowledged_pulse_effect",
+        selector: {
+          select: {
+            options: [
+              { value: "radar", label: "Radar (two expanding rings)" },
+              { value: "ring", label: "Ring (single expanding ring)" },
+              { value: "glow", label: "Glow (soft breathing glow)" },
+            ],
+          },
+        },
+      },
+      {
         name: "unacknowledged_pulse_size",
         selector: { number: { min: 1.1, max: 4, step: 0.1, mode: "box" } },
+      },
+      {
+        name: "unacknowledged_pulse_speed",
+        selector: { number: { min: 0.3, max: 6, step: 0.1, mode: "box", unit_of_measurement: "s" } },
       },
       { name: "language", selector: languageSelector },
       { name: "channels_mode", selector: channelModeSelector },
@@ -710,8 +748,10 @@ K93AnsBannerCardEditor.LABELS = {
   title_icon_background: "Title icon backdrop (CSS color, blank = none)",
   unacknowledged_icon: "Icon while unacknowledged notifications exist (blank = keep title icon)",
   unacknowledged_icon_color: "Icon color while unacknowledged (CSS color, blank = title icon color)",
-  unacknowledged_pulse_color: "Pulsing radar effect color while unacknowledged (CSS color, blank = no pulse)",
-  unacknowledged_pulse_size: "Pulsing radar effect max size (x badge size)",
+  unacknowledged_pulse_color: "Pulsing effect color while unacknowledged (CSS color, blank = no pulse)",
+  unacknowledged_pulse_effect: "Pulsing effect style",
+  unacknowledged_pulse_size: "Pulsing effect max size (x badge size, radar/ring only)",
+  unacknowledged_pulse_speed: "Pulsing effect speed (seconds per cycle)",
   language: "Language",
   channels_mode: "Channel filter mode",
   channels: "Channels (empty = no filter; suggests configured channels)",
