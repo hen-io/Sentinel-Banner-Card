@@ -154,6 +154,8 @@ class K93AnsBannerCard extends HTMLElement {
       unacknowledged_pulse_effect: "radar",
       unacknowledged_pulse_size: 1.8,
       unacknowledged_pulse_speed: 2,
+      unacknowledged_badge_color: null,
+      unacknowledged_badge_text_color: null,
       language: "auto",
       channels: [],
       channels_mode: "include",
@@ -284,11 +286,12 @@ class K93AnsBannerCard extends HTMLElement {
     this._render();
   }
 
-  _titleIconHtml(hasUnacknowledged) {
+  _titleIconHtml(hasUnacknowledged, unacknowledgedCount) {
     const cfg = this._config;
     const icon = (hasUnacknowledged && cfg.unacknowledged_icon) || cfg.title_icon;
     const pulseColor = hasUnacknowledged ? cfg.unacknowledged_pulse_color : "";
-    if (!icon && !pulseColor) return "";
+    const showCountBadge = Boolean(cfg.unacknowledged_badge_color) && unacknowledgedCount > 0;
+    if (!icon && !pulseColor && !showCountBadge) return "";
     const size = Number(cfg.title_icon_size) || 24;
     const color = (hasUnacknowledged && cfg.unacknowledged_icon_color) || cfg.title_icon_color || "var(--primary-text-color)";
     const background = cfg.title_icon_background || "transparent";
@@ -307,9 +310,17 @@ class K93AnsBannerCard extends HTMLElement {
     const iconHtml = icon
       ? `<ha-icon icon="${esc(icon)}" style="color: ${esc(color)}; --mdc-icon-size: ${Math.round(size * 0.6)}px;"></ha-icon>`
       : "";
+    const badgeSize = Math.max(14, Math.min(22, Math.round(size * 0.5)));
+    const badgeFontSize = Math.max(9, Math.round(badgeSize * 0.62));
+    const badgeTextColor = cfg.unacknowledged_badge_text_color || "#ffffff";
+    const badgeText = unacknowledgedCount > 9 ? "9+" : String(unacknowledgedCount);
+    const badgeHtml = showCountBadge
+      ? `<span class="count-badge" style="min-width: ${badgeSize}px; height: ${badgeSize}px; font-size: ${badgeFontSize}px; line-height: ${badgeSize}px; background: ${esc(cfg.unacknowledged_badge_color)}; color: ${esc(badgeTextColor)};">${badgeText}</span>`
+      : "";
     return `
       <span class="title-icon${pulseClass}" style="width: ${size}px; height: ${size}px; background: ${esc(background)};${pulseStyle}">
         ${iconHtml}
+        ${badgeHtml}
       </span>
     `;
   }
@@ -350,8 +361,9 @@ class K93AnsBannerCard extends HTMLElement {
   _renderTicker(locale, lang) {
     const cfg = this._config;
     const all = this._notifications || [];
-    const hasUnacknowledged = all.some((n) => n.requires_ack && !n.acknowledged && n.show_in_history !== false);
-    const iconHtml = this._titleIconHtml(hasUnacknowledged);
+    const unacknowledged = all.filter((n) => n.requires_ack && !n.acknowledged && n.show_in_history !== false);
+    const hasUnacknowledged = unacknowledged.length > 0;
+    const iconHtml = this._titleIconHtml(hasUnacknowledged, unacknowledged.length);
     const items = all
       .filter((n) => matchesFilter(n, cfg.channels, cfg.min_importance, cfg.channels_mode, perChannelImportanceFromConfig(cfg)))
       .slice(0, cfg.ticker_limit ?? 10);
@@ -430,6 +442,19 @@ class K93AnsBannerCard extends HTMLElement {
         .title-icon ha-icon {
           position: relative;
           z-index: 1;
+        }
+        .title-icon .count-badge {
+          position: absolute;
+          top: -4px;
+          right: -4px;
+          box-sizing: border-box;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0 3px;
+          border-radius: 999px;
+          font-weight: bold;
+          z-index: 2;
         }
         .title-icon.pulsing.effect-radar::before,
         .title-icon.pulsing.effect-radar::after,
@@ -604,6 +629,8 @@ class K93AnsBannerCard extends HTMLElement {
       unacknowledged_pulse_effect: "radar",
       unacknowledged_pulse_size: 1.8,
       unacknowledged_pulse_speed: 2,
+      unacknowledged_badge_color: null,
+      unacknowledged_badge_text_color: null,
       language: "auto",
       channels: [],
       channels_mode: "include",
@@ -764,6 +791,8 @@ class K93AnsBannerCardEditor extends HTMLElement {
         name: "unacknowledged_pulse_speed",
         selector: { number: { min: 0.3, max: 6, step: 0.1, mode: "box", unit_of_measurement: "s" } },
       },
+      { name: "unacknowledged_badge_color", selector: { text: {} } },
+      { name: "unacknowledged_badge_text_color", selector: { text: {} } },
       { name: "language", selector: languageSelector },
       { name: "channels_mode", selector: channelModeSelector },
       { name: "channels", selector: channelSelector },
@@ -840,6 +869,8 @@ K93AnsBannerCardEditor.LABELS = {
   unacknowledged_pulse_effect: "Pulsing effect style",
   unacknowledged_pulse_size: "Pulsing effect max size (x badge size, radar/ring only)",
   unacknowledged_pulse_speed: "Pulsing effect speed (seconds per cycle)",
+  unacknowledged_badge_color: "Unacknowledged count badge color (CSS color, blank = no badge)",
+  unacknowledged_badge_text_color: "Unacknowledged count badge text color (CSS color, blank = white)",
   language: "Language",
   channels_mode: "Channel filter mode",
   channels: "Channels (empty = no filter; suggests configured channels)",
