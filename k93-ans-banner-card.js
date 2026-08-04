@@ -135,6 +135,9 @@ class K93AnsBannerCard extends HTMLElement {
       title_icon_size: 24,
       title_icon_color: null,
       title_icon_background: null,
+      unacknowledged_icon: null,
+      unacknowledged_icon_color: null,
+      unacknowledged_pulse_color: null,
       language: "auto",
       channels: [],
       channels_mode: "include",
@@ -247,15 +250,19 @@ class K93AnsBannerCard extends HTMLElement {
     this._render();
   }
 
-  _titleIconHtml() {
+  _titleIconHtml(hasUnacknowledged) {
     const cfg = this._config;
-    if (!cfg.title_icon) return "";
+    const icon = (hasUnacknowledged && cfg.unacknowledged_icon) || cfg.title_icon;
+    if (!icon) return "";
     const size = Number(cfg.title_icon_size) || 24;
-    const color = cfg.title_icon_color || "var(--primary-text-color)";
+    const color = (hasUnacknowledged && cfg.unacknowledged_icon_color) || cfg.title_icon_color || "var(--primary-text-color)";
     const background = cfg.title_icon_background || "transparent";
+    const pulseColor = hasUnacknowledged ? cfg.unacknowledged_pulse_color : "";
+    const pulseClass = pulseColor ? " pulsing" : "";
+    const pulseStyle = pulseColor ? ` --k93-pulse-color: ${esc(pulseColor)};` : "";
     return `
-      <span class="title-icon" style="width: ${size}px; height: ${size}px; background: ${esc(background)};">
-        <ha-icon icon="${esc(cfg.title_icon)}" style="color: ${esc(color)}; --mdc-icon-size: ${Math.round(size * 0.6)}px;"></ha-icon>
+      <span class="title-icon${pulseClass}" style="width: ${size}px; height: ${size}px; background: ${esc(background)};${pulseStyle}">
+        <ha-icon icon="${esc(icon)}" style="color: ${esc(color)}; --mdc-icon-size: ${Math.round(size * 0.6)}px;"></ha-icon>
       </span>
     `;
   }
@@ -295,9 +302,11 @@ class K93AnsBannerCard extends HTMLElement {
 
   _renderTicker(locale, lang) {
     const cfg = this._config;
-    const items = (this._notifications || [])
-      .filter((n) => matchesFilter(n, cfg.channels, cfg.min_importance, cfg.channels_mode, perChannelImportanceFromConfig(cfg)))
-      .slice(0, cfg.ticker_limit ?? 10);
+    const filtered = (this._notifications || []).filter((n) =>
+      matchesFilter(n, cfg.channels, cfg.min_importance, cfg.channels_mode, perChannelImportanceFromConfig(cfg))
+    );
+    const hasUnacknowledged = filtered.some((n) => n.requires_ack && !n.acknowledged);
+    const items = filtered.slice(0, cfg.ticker_limit ?? 10);
 
     if (!items.length) return "";
 
@@ -307,7 +316,7 @@ class K93AnsBannerCard extends HTMLElement {
     const baseLoopSeconds = Math.min(items.length * 5, 120);
     const duration = Math.max(4, baseLoopSeconds / speed);
     const fontSize = Number(cfg.ticker_font_size) || 1;
-    const iconHtml = this._titleIconHtml();
+    const iconHtml = this._titleIconHtml(hasUnacknowledged);
 
     return `
       <div class="ticker-wrap">
@@ -354,11 +363,32 @@ class K93AnsBannerCard extends HTMLElement {
         }
         ha-card.tappable { cursor: pointer; }
         .title-icon {
+          position: relative;
           display: inline-flex;
           align-items: center;
           justify-content: center;
           border-radius: 999px;
           flex-shrink: 0;
+        }
+        .title-icon ha-icon {
+          position: relative;
+          z-index: 1;
+        }
+        .title-icon.pulsing::before,
+        .title-icon.pulsing::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          border-radius: 999px;
+          background: var(--k93-pulse-color);
+          animation: k93-radar-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+        .title-icon.pulsing::after {
+          animation-delay: 1s;
+        }
+        @keyframes k93-radar-ping {
+          0% { transform: scale(1); opacity: 0.6; }
+          100% { transform: scale(2.2); opacity: 0; }
         }
         .ticker-wrap {
           display: flex;
@@ -462,6 +492,9 @@ class K93AnsBannerCard extends HTMLElement {
       title_icon_size: 24,
       title_icon_color: null,
       title_icon_background: null,
+      unacknowledged_icon: null,
+      unacknowledged_icon_color: null,
+      unacknowledged_pulse_color: null,
       language: "auto",
       channels: [],
       channels_mode: "include",
@@ -592,6 +625,9 @@ class K93AnsBannerCardEditor extends HTMLElement {
       },
       { name: "title_icon_color", selector: { text: {} } },
       { name: "title_icon_background", selector: { text: {} } },
+      { name: "unacknowledged_icon", selector: { icon: {} } },
+      { name: "unacknowledged_icon_color", selector: { text: {} } },
+      { name: "unacknowledged_pulse_color", selector: { text: {} } },
       { name: "language", selector: languageSelector },
       { name: "channels_mode", selector: channelModeSelector },
       { name: "channels", selector: channelSelector },
@@ -643,6 +679,9 @@ K93AnsBannerCardEditor.LABELS = {
   title_icon_size: "Title icon size (px)",
   title_icon_color: "Title icon color (CSS color, blank = theme text color)",
   title_icon_background: "Title icon backdrop (CSS color, blank = none)",
+  unacknowledged_icon: "Icon while unacknowledged notifications exist (blank = keep title icon)",
+  unacknowledged_icon_color: "Icon color while unacknowledged (CSS color, blank = title icon color)",
+  unacknowledged_pulse_color: "Pulsing radar effect color while unacknowledged (CSS color, blank = no pulse)",
   language: "Language",
   channels_mode: "Channel filter mode",
   channels: "Channels (empty = no filter; suggests configured channels)",
