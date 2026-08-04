@@ -216,15 +216,29 @@ class K93AnsBannerCard extends HTMLElement {
   async _fetchList() {
     try {
       const cfg = this._config || {};
-      const result = await this._hass.callWS({
-        type: "k93_ans/list",
-        include_acknowledged: true,
-        limit: cfg.max_items ?? 50,
-        channels: cfg.channels && cfg.channels.length ? cfg.channels : undefined,
-        channel_mode: cfg.channels_mode || "include",
-        min_importance: cfg.min_importance,
-      });
-      this._notifications = result.notifications;
+      const limit = cfg.max_items ?? 50;
+      const isFiltered = Boolean(
+        (cfg.channels && cfg.channels.length) || (cfg.min_importance && cfg.min_importance !== "low")
+      );
+      const fetches = [
+        this._hass.callWS({
+          type: "k93_ans/list",
+          include_acknowledged: true,
+          limit,
+          channels: cfg.channels && cfg.channels.length ? cfg.channels : undefined,
+          channel_mode: cfg.channels_mode || "include",
+          min_importance: cfg.min_importance,
+        }),
+      ];
+      if (isFiltered) {
+        fetches.push(this._hass.callWS({ type: "k93_ans/list", include_acknowledged: true, limit }));
+      }
+      const results = await Promise.all(fetches);
+      const merged = new Map();
+      for (const result of results) {
+        for (const record of result.notifications) merged.set(record.id, record);
+      }
+      this._notifications = [...merged.values()].sort((a, b) => (a.created < b.created ? 1 : -1));
       this._render();
     } catch (err) {
       console.error("k93-ans-banner-card: failed to load notifications", err);
@@ -254,19 +268,22 @@ class K93AnsBannerCard extends HTMLElement {
   _titleIconHtml(hasUnacknowledged) {
     const cfg = this._config;
     const icon = (hasUnacknowledged && cfg.unacknowledged_icon) || cfg.title_icon;
-    if (!icon) return "";
+    const pulseColor = hasUnacknowledged ? cfg.unacknowledged_pulse_color : "";
+    if (!icon && !pulseColor) return "";
     const size = Number(cfg.title_icon_size) || 24;
     const color = (hasUnacknowledged && cfg.unacknowledged_icon_color) || cfg.title_icon_color || "var(--primary-text-color)";
     const background = cfg.title_icon_background || "transparent";
-    const pulseColor = hasUnacknowledged ? cfg.unacknowledged_pulse_color : "";
     const pulseClass = pulseColor ? " pulsing" : "";
     const pulseSize = Number(cfg.unacknowledged_pulse_size) || 1.8;
     const pulseStyle = pulseColor
       ? ` --k93-pulse-color: ${esc(pulseColor)}; --k93-pulse-scale: ${pulseSize};`
       : "";
+    const iconHtml = icon
+      ? `<ha-icon icon="${esc(icon)}" style="color: ${esc(color)}; --mdc-icon-size: ${Math.round(size * 0.6)}px;"></ha-icon>`
+      : "";
     return `
       <span class="title-icon${pulseClass}" style="width: ${size}px; height: ${size}px; background: ${esc(background)};${pulseStyle}">
-        <ha-icon icon="${esc(icon)}" style="color: ${esc(color)}; --mdc-icon-size: ${Math.round(size * 0.6)}px;"></ha-icon>
+        ${iconHtml}
       </span>
     `;
   }
@@ -306,13 +323,16 @@ class K93AnsBannerCard extends HTMLElement {
 
   _renderTicker(locale, lang) {
     const cfg = this._config;
-    const filtered = (this._notifications || []).filter((n) =>
-      matchesFilter(n, cfg.channels, cfg.min_importance, cfg.channels_mode, perChannelImportanceFromConfig(cfg))
-    );
-    const hasUnacknowledged = filtered.some((n) => n.requires_ack && !n.acknowledged);
-    const items = filtered.slice(0, cfg.ticker_limit ?? 10);
+    const all = this._notifications || [];
+    const hasUnacknowledged = all.some((n) => n.requires_ack && !n.acknowledged && n.show_in_history !== false);
+    const iconHtml = this._titleIconHtml(hasUnacknowledged);
+    const items = all
+      .filter((n) => matchesFilter(n, cfg.channels, cfg.min_importance, cfg.channels_mode, perChannelImportanceFromConfig(cfg)))
+      .slice(0, cfg.ticker_limit ?? 10);
 
-    if (!items.length) return "";
+    if (!items.length) {
+      return iconHtml ? `<div class="ticker-wrap">${iconHtml}</div>` : "";
+    }
 
     const sep = `<span class="ticker-sep">&bull;</span>`;
     const group = items.map((n) => this._tickerItemHtml(n, locale, lang)).join(sep) + sep;
@@ -320,7 +340,6 @@ class K93AnsBannerCard extends HTMLElement {
     const baseLoopSeconds = Math.min(items.length * 5, 120);
     const duration = Math.max(4, baseLoopSeconds / speed);
     const fontSize = Number(cfg.ticker_font_size) || 1;
-    const iconHtml = this._titleIconHtml(hasUnacknowledged);
 
     return `
       <div class="ticker-wrap">
