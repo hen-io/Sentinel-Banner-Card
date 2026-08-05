@@ -141,8 +141,7 @@ class K93AnsBannerCard extends HTMLElement {
     this._subscribed = false;
     this._unsubscribe = null;
     this._manualScrollPausedUntil = 0;
-    this._rafId = null;
-    this._lastFrameTime = null;
+    this._scrollIntervalId = null;
     this._dragState = null;
   }
 
@@ -171,6 +170,7 @@ class K93AnsBannerCard extends HTMLElement {
       ticker_font_style: "regular",
       ticker_icon_size: 1,
       ticker_manual_scroll: false,
+      ticker_manual_scroll_pause: 10,
       ticker_speed: 1,
       max_items: 50,
       card_height: null,
@@ -218,9 +218,8 @@ class K93AnsBannerCard extends HTMLElement {
     if (!this._clockInterval) {
       this._clockInterval = setInterval(() => this._render(), 30000);
     }
-    if (!this._rafId) {
-      this._lastFrameTime = null;
-      this._rafId = requestAnimationFrame((t) => this._autoScrollTick(t));
+    if (!this._scrollIntervalId) {
+      this._scrollIntervalId = setInterval(() => this._autoScrollTick(), 50);
     }
   }
 
@@ -234,43 +233,38 @@ class K93AnsBannerCard extends HTMLElement {
       clearInterval(this._clockInterval);
       this._clockInterval = null;
     }
-    if (this._rafId) {
-      cancelAnimationFrame(this._rafId);
-      this._rafId = null;
+    if (this._scrollIntervalId) {
+      clearInterval(this._scrollIntervalId);
+      this._scrollIntervalId = null;
     }
   }
 
-  _autoScrollTick(time) {
-    this._rafId = requestAnimationFrame((t) => this._autoScrollTick(t));
-
+  _autoScrollTick() {
     const cfg = this._config;
-    if (!cfg?.ticker_manual_scroll) {
-      this._lastFrameTime = null;
-      return;
-    }
+    if (!cfg?.ticker_manual_scroll) return;
     const viewport = this._tickerHostEl?.querySelector(".ticker-viewport.manual-scroll");
     const track = viewport?.querySelector(".ticker-track");
     const groupWidth = track ? track.scrollWidth / 2 : 0;
-    if (!viewport || !groupWidth) {
-      this._lastFrameTime = null;
-      return;
-    }
+    if (!viewport || !groupWidth) return;
 
-    const dt = this._lastFrameTime == null ? 0 : (time - this._lastFrameTime) / 1000;
-    this._lastFrameTime = time;
-
-    if (!this._dragState && Date.now() >= this._manualScrollPausedUntil && dt > 0) {
-      const pixelsPerSecond = groupWidth / (this._tickerDurationSeconds || 20);
-      viewport.scrollLeft += pixelsPerSecond * dt;
+    if (!this._dragState && Date.now() >= this._manualScrollPausedUntil) {
+      const durationSeconds = this._tickerDurationSeconds || 20;
+      const pixelsPerTick = groupWidth / (durationSeconds * 20);
+      viewport.scrollLeft += pixelsPerTick;
     }
 
     if (viewport.scrollLeft >= groupWidth) viewport.scrollLeft -= groupWidth;
     else if (viewport.scrollLeft < 0) viewport.scrollLeft += groupWidth;
   }
 
+  _manualScrollPauseMs() {
+    const configured = Number(this._config?.ticker_manual_scroll_pause);
+    return (Number.isFinite(configured) ? Math.max(0, configured) : 10) * 1000;
+  }
+
   _setupManualScrollDrag() {
     const markInteraction = () => {
-      this._manualScrollPausedUntil = Date.now() + 10000;
+      this._manualScrollPausedUntil = Date.now() + this._manualScrollPauseMs();
     };
     this._tickerHostEl.addEventListener("wheel", (ev) => {
       if (ev.target.closest(".ticker-viewport.manual-scroll")) markInteraction();
@@ -278,6 +272,7 @@ class K93AnsBannerCard extends HTMLElement {
     this._tickerHostEl.addEventListener("pointerdown", (ev) => {
       const viewport = ev.target.closest(".ticker-viewport.manual-scroll");
       if (!viewport) return;
+      ev.preventDefault();
       markInteraction();
       this._dragState = { viewport, startX: ev.clientX, startScrollLeft: viewport.scrollLeft, pointerId: ev.pointerId };
       viewport.classList.add("dragging");
@@ -620,6 +615,8 @@ class K93AnsBannerCard extends HTMLElement {
           overflow-x: auto;
           scrollbar-width: none;
           touch-action: none;
+          user-select: none;
+          -webkit-user-select: none;
           cursor: grab;
         }
         .ticker-viewport.manual-scroll::-webkit-scrollbar { display: none; }
@@ -706,7 +703,13 @@ class K93AnsBannerCard extends HTMLElement {
 
     if (tickerHtml !== this._lastTickerHtml) {
       this._lastTickerHtml = tickerHtml;
+      const previousViewport = this._tickerHostEl.querySelector(".ticker-viewport.manual-scroll");
+      const previousScrollLeft = previousViewport ? previousViewport.scrollLeft : 0;
       this._tickerHostEl.innerHTML = tickerHtml;
+      if (previousScrollLeft) {
+        const newViewport = this._tickerHostEl.querySelector(".ticker-viewport.manual-scroll");
+        if (newViewport) newViewport.scrollLeft = previousScrollLeft;
+      }
     }
   }
 
@@ -735,6 +738,7 @@ class K93AnsBannerCard extends HTMLElement {
       ticker_font_style: "regular",
       ticker_icon_size: 1,
       ticker_manual_scroll: false,
+      ticker_manual_scroll_pause: 10,
       ticker_speed: 1,
       max_items: 50,
       card_height: null,
@@ -918,6 +922,10 @@ class K93AnsBannerCardEditor extends HTMLElement {
       },
       { name: "ticker_manual_scroll", selector: { boolean: {} } },
       {
+        name: "ticker_manual_scroll_pause",
+        selector: { number: { min: 0, max: 60, step: 1, mode: "box", unit_of_measurement: "s" } },
+      },
+      {
         name: "ticker_speed",
         selector: { number: { min: 0.25, max: 4, step: 0.25, mode: "box" } },
       },
@@ -976,7 +984,8 @@ K93AnsBannerCardEditor.LABELS = {
   ticker_font_family: "Ticker font family (CSS font-family, blank = theme default)",
   ticker_font_style: "Ticker text style",
   ticker_icon_size: "Per-notification icon size (x text size)",
-  ticker_manual_scroll: "Allow manual scroll/drag (pauses auto-scroll for 10s after)",
+  ticker_manual_scroll: "Allow manual scroll/drag",
+  ticker_manual_scroll_pause: "Auto-scroll pause after manual scroll/drag (seconds)",
   ticker_speed: "Scroll speed (x)",
   max_items: "Max records fetched",
   card_height: "Card height (px, blank = auto-fit to the ticker line)",
