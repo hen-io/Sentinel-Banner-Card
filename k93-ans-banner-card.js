@@ -149,6 +149,8 @@ class K93AnsBannerCard extends HTMLElement {
     this._lastScrollFrameTime = null;
     this._dragState = null;
     this._dragMoved = false;
+    this._manualScrollWasPaused = true;
+    this._manualScrollResumedAt = null;
   }
 
   setConfig(config) {
@@ -177,6 +179,8 @@ class K93AnsBannerCard extends HTMLElement {
       ticker_icon_size: 1,
       ticker_manual_scroll: false,
       ticker_manual_scroll_pause: 10,
+      ticker_manual_scroll_start_delay: 3,
+      ticker_manual_scroll_ramp: 2,
       ticker_speed: 1,
       max_items: 50,
       card_height: null,
@@ -226,6 +230,9 @@ class K93AnsBannerCard extends HTMLElement {
     }
     if (!this._scrollRafId) {
       this._lastScrollFrameTime = null;
+      this._manualScrollPausedUntil = Date.now() + this._manualScrollStartDelayMs();
+      this._manualScrollWasPaused = true;
+      this._manualScrollResumedAt = null;
       this._scrollRafId = requestAnimationFrame((t) => this._autoScrollTick(t));
     }
   }
@@ -270,9 +277,17 @@ class K93AnsBannerCard extends HTMLElement {
     const dt = this._lastScrollFrameTime == null ? 0 : (time - this._lastScrollFrameTime) / 1000;
     this._lastScrollFrameTime = time;
 
-    if (!this._dragState && Date.now() >= this._manualScrollPausedUntil && dt > 0) {
+    const isPaused = Boolean(this._dragState) || Date.now() < this._manualScrollPausedUntil;
+    if (!isPaused && this._manualScrollWasPaused) this._manualScrollResumedAt = Date.now();
+    this._manualScrollWasPaused = isPaused;
+
+    if (!isPaused && dt > 0) {
       const speed = Number(this._config?.ticker_speed) || 1;
-      this._manualOffsetPx += MANUAL_SCROLL_BASE_PX_PER_SECOND * speed * dt;
+      const rampMs = this._manualScrollRampMs();
+      const rampMultiplier = (rampMs > 0 && this._manualScrollResumedAt != null)
+        ? Math.min(1, (Date.now() - this._manualScrollResumedAt) / rampMs)
+        : 1;
+      this._manualOffsetPx += MANUAL_SCROLL_BASE_PX_PER_SECOND * speed * rampMultiplier * dt;
     }
 
     if (this._manualOffsetPx >= groupWidth) this._manualOffsetPx -= groupWidth;
@@ -284,6 +299,16 @@ class K93AnsBannerCard extends HTMLElement {
   _manualScrollPauseMs() {
     const configured = Number(this._config?.ticker_manual_scroll_pause);
     return (Number.isFinite(configured) ? Math.max(0, configured) : 10) * 1000;
+  }
+
+  _manualScrollStartDelayMs() {
+    const configured = Number(this._config?.ticker_manual_scroll_start_delay);
+    return (Number.isFinite(configured) ? Math.max(0, configured) : 3) * 1000;
+  }
+
+  _manualScrollRampMs() {
+    const configured = Number(this._config?.ticker_manual_scroll_ramp);
+    return (Number.isFinite(configured) ? Math.max(0, configured) : 2) * 1000;
   }
 
   _setupManualScrollDrag() {
@@ -770,6 +795,8 @@ class K93AnsBannerCard extends HTMLElement {
       ticker_icon_size: 1,
       ticker_manual_scroll: false,
       ticker_manual_scroll_pause: 10,
+      ticker_manual_scroll_start_delay: 3,
+      ticker_manual_scroll_ramp: 2,
       ticker_speed: 1,
       max_items: 50,
       card_height: null,
@@ -957,6 +984,14 @@ class K93AnsBannerCardEditor extends HTMLElement {
         selector: { number: { min: 0, max: 60, step: 1, mode: "box", unit_of_measurement: "s" } },
       },
       {
+        name: "ticker_manual_scroll_start_delay",
+        selector: { number: { min: 0, max: 30, step: 1, mode: "box", unit_of_measurement: "s" } },
+      },
+      {
+        name: "ticker_manual_scroll_ramp",
+        selector: { number: { min: 0, max: 15, step: 0.5, mode: "box", unit_of_measurement: "s" } },
+      },
+      {
         name: "ticker_speed",
         selector: { number: { min: 0.25, max: 4, step: 0.25, mode: "box" } },
       },
@@ -1017,6 +1052,8 @@ K93AnsBannerCardEditor.LABELS = {
   ticker_icon_size: "Per-notification icon size (x text size)",
   ticker_manual_scroll: "Allow manual scroll/drag",
   ticker_manual_scroll_pause: "Auto-scroll pause after manual scroll/drag (seconds)",
+  ticker_manual_scroll_start_delay: "Pause before auto-scroll starts on card load (seconds)",
+  ticker_manual_scroll_ramp: "Time to reach full scroll speed after starting/resuming (seconds)",
   ticker_speed: "Scroll speed (x)",
   max_items: "Max records fetched",
   card_height: "Card height (px, blank = auto-fit to the ticker line)",
