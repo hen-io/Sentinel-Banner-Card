@@ -3,6 +3,7 @@ const IMPORTANCE_LEVELS = ["low", "normal", "high", "critical"];
 const BUILTIN_CHANNEL_KEYS = ["info", "alert", "event", "reminder", "security", "system"];
 const LOCALE_TAG = { en: "en", no: "nb-NO" };
 const MANUAL_SCROLL_BASE_PX_PER_SECOND = 50;
+const DRAG_CLICK_SUPPRESS_THRESHOLD_PX = 5;
 
 function fireDomEvent(node, type, detail) {
   const event = new CustomEvent(type, { bubbles: true, cancelable: false, composed: true, detail });
@@ -147,6 +148,7 @@ class K93AnsBannerCard extends HTMLElement {
     this._scrollRafId = null;
     this._lastScrollFrameTime = null;
     this._dragState = null;
+    this._dragMoved = false;
   }
 
   setConfig(config) {
@@ -298,6 +300,7 @@ class K93AnsBannerCard extends HTMLElement {
       ev.preventDefault();
       markInteraction();
       this._dragState = { viewport, startX: ev.clientX, startOffset: this._manualOffsetPx, pointerId: ev.pointerId };
+      this._dragMoved = false;
       viewport.classList.add("dragging");
       viewport.setPointerCapture(ev.pointerId);
     });
@@ -306,6 +309,7 @@ class K93AnsBannerCard extends HTMLElement {
       if (!drag || ev.pointerId !== drag.pointerId) return;
       const found = this._manualScrollTrack();
       if (!found) return;
+      if (Math.abs(ev.clientX - drag.startX) > DRAG_CLICK_SUPPRESS_THRESHOLD_PX) this._dragMoved = true;
       const raw = drag.startOffset - (ev.clientX - drag.startX);
       this._manualOffsetPx = ((raw % found.groupWidth) + found.groupWidth) % found.groupWidth;
       this._applyManualOffset(found.track);
@@ -709,6 +713,10 @@ class K93AnsBannerCard extends HTMLElement {
       this._cardEl = this.shadowRoot.querySelector("ha-card");
       this._tickerHostEl = this.shadowRoot.querySelector(".ticker-host");
       this._cardEl.addEventListener("click", () => {
+        if (this._dragMoved) {
+          this._dragMoved = false;
+          return;
+        }
         if (this._config?.tap_action?.action) {
           handleTapAction(this, this._hass, this._config.tap_action);
         }
