@@ -140,6 +140,7 @@ class K93AnsBannerCard extends HTMLElement {
     this._notifications = [];
     this._subscribed = false;
     this._unsubscribe = null;
+    this._manualOffsetPx = 0;
     this._manualScrollPausedUntil = 0;
     this._scrollIntervalId = null;
     this._dragState = null;
@@ -239,22 +240,32 @@ class K93AnsBannerCard extends HTMLElement {
     }
   }
 
+  _manualScrollTrack() {
+    if (!this._config?.ticker_manual_scroll) return null;
+    const track = this._tickerHostEl?.querySelector(".ticker-track");
+    if (!track) return null;
+    const groupWidth = track.scrollWidth / 2;
+    return groupWidth > 0 ? { track, groupWidth } : null;
+  }
+
+  _applyManualOffset(track) {
+    track.style.transform = `translateX(${-this._manualOffsetPx}px)`;
+  }
+
   _autoScrollTick() {
-    const cfg = this._config;
-    if (!cfg?.ticker_manual_scroll) return;
-    const viewport = this._tickerHostEl?.querySelector(".ticker-viewport.manual-scroll");
-    const track = viewport?.querySelector(".ticker-track");
-    const groupWidth = track ? track.scrollWidth / 2 : 0;
-    if (!viewport || !groupWidth) return;
+    const found = this._manualScrollTrack();
+    if (!found) return;
+    const { track, groupWidth } = found;
 
     if (!this._dragState && Date.now() >= this._manualScrollPausedUntil) {
       const durationSeconds = this._tickerDurationSeconds || 20;
-      const pixelsPerTick = groupWidth / (durationSeconds * 20);
-      viewport.scrollLeft += pixelsPerTick;
+      this._manualOffsetPx += groupWidth / (durationSeconds * 20);
     }
 
-    if (viewport.scrollLeft >= groupWidth) viewport.scrollLeft -= groupWidth;
-    else if (viewport.scrollLeft < 0) viewport.scrollLeft += groupWidth;
+    if (this._manualOffsetPx >= groupWidth) this._manualOffsetPx -= groupWidth;
+    else if (this._manualOffsetPx < 0) this._manualOffsetPx += groupWidth;
+
+    this._applyManualOffset(track);
   }
 
   _manualScrollPauseMs() {
@@ -271,17 +282,22 @@ class K93AnsBannerCard extends HTMLElement {
     }, { passive: true });
     this._tickerHostEl.addEventListener("pointerdown", (ev) => {
       const viewport = ev.target.closest(".ticker-viewport.manual-scroll");
-      if (!viewport) return;
+      const found = this._manualScrollTrack();
+      if (!viewport || !found) return;
       ev.preventDefault();
       markInteraction();
-      this._dragState = { viewport, startX: ev.clientX, startScrollLeft: viewport.scrollLeft, pointerId: ev.pointerId };
+      this._dragState = { viewport, startX: ev.clientX, startOffset: this._manualOffsetPx, pointerId: ev.pointerId };
       viewport.classList.add("dragging");
       viewport.setPointerCapture(ev.pointerId);
     });
     this._tickerHostEl.addEventListener("pointermove", (ev) => {
       const drag = this._dragState;
       if (!drag || ev.pointerId !== drag.pointerId) return;
-      drag.viewport.scrollLeft = drag.startScrollLeft - (ev.clientX - drag.startX);
+      const found = this._manualScrollTrack();
+      if (!found) return;
+      const raw = drag.startOffset - (ev.clientX - drag.startX);
+      this._manualOffsetPx = ((raw % found.groupWidth) + found.groupWidth) % found.groupWidth;
+      this._applyManualOffset(found.track);
       markInteraction();
     });
     const endDrag = (ev) => {
@@ -612,14 +628,11 @@ class K93AnsBannerCard extends HTMLElement {
           mask-image: linear-gradient(to right, transparent 0, black 24px, black calc(100% - 24px), transparent 100%);
         }
         .ticker-viewport.manual-scroll {
-          overflow-x: auto;
-          scrollbar-width: none;
           touch-action: none;
           user-select: none;
           -webkit-user-select: none;
           cursor: grab;
         }
-        .ticker-viewport.manual-scroll::-webkit-scrollbar { display: none; }
         .ticker-viewport.manual-scroll.dragging { cursor: grabbing; }
         .ticker-track {
           display: inline-block;
@@ -703,13 +716,9 @@ class K93AnsBannerCard extends HTMLElement {
 
     if (tickerHtml !== this._lastTickerHtml) {
       this._lastTickerHtml = tickerHtml;
-      const previousViewport = this._tickerHostEl.querySelector(".ticker-viewport.manual-scroll");
-      const previousScrollLeft = previousViewport ? previousViewport.scrollLeft : 0;
       this._tickerHostEl.innerHTML = tickerHtml;
-      if (previousScrollLeft) {
-        const newViewport = this._tickerHostEl.querySelector(".ticker-viewport.manual-scroll");
-        if (newViewport) newViewport.scrollLeft = previousScrollLeft;
-      }
+      const found = this._manualScrollTrack();
+      if (found) this._applyManualOffset(found.track);
     }
   }
 
