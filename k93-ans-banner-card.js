@@ -2,6 +2,7 @@
 const IMPORTANCE_LEVELS = ["low", "normal", "high", "critical"];
 const BUILTIN_CHANNEL_KEYS = ["info", "alert", "event", "reminder", "security", "system"];
 const LOCALE_TAG = { en: "en", no: "nb-NO" };
+const MANUAL_SCROLL_BASE_PX_PER_SECOND = 50;
 
 function fireDomEvent(node, type, detail) {
   const event = new CustomEvent(type, { bubbles: true, cancelable: false, composed: true, detail });
@@ -141,8 +142,10 @@ class K93AnsBannerCard extends HTMLElement {
     this._subscribed = false;
     this._unsubscribe = null;
     this._manualOffsetPx = 0;
+    this._manualGroupWidth = 0;
     this._manualScrollPausedUntil = 0;
-    this._scrollIntervalId = null;
+    this._scrollRafId = null;
+    this._lastScrollFrameTime = null;
     this._dragState = null;
   }
 
@@ -219,8 +222,9 @@ class K93AnsBannerCard extends HTMLElement {
     if (!this._clockInterval) {
       this._clockInterval = setInterval(() => this._render(), 30000);
     }
-    if (!this._scrollIntervalId) {
-      this._scrollIntervalId = setInterval(() => this._autoScrollTick(), 50);
+    if (!this._scrollRafId) {
+      this._lastScrollFrameTime = null;
+      this._scrollRafId = requestAnimationFrame((t) => this._autoScrollTick(t));
     }
   }
 
@@ -234,32 +238,39 @@ class K93AnsBannerCard extends HTMLElement {
       clearInterval(this._clockInterval);
       this._clockInterval = null;
     }
-    if (this._scrollIntervalId) {
-      clearInterval(this._scrollIntervalId);
-      this._scrollIntervalId = null;
+    if (this._scrollRafId) {
+      cancelAnimationFrame(this._scrollRafId);
+      this._scrollRafId = null;
     }
   }
 
   _manualScrollTrack() {
     if (!this._config?.ticker_manual_scroll) return null;
     const track = this._tickerHostEl?.querySelector(".ticker-track");
-    if (!track) return null;
-    const groupWidth = track.scrollWidth / 2;
-    return groupWidth > 0 ? { track, groupWidth } : null;
+    if (!track || !(this._manualGroupWidth > 0)) return null;
+    return { track, groupWidth: this._manualGroupWidth };
   }
 
   _applyManualOffset(track) {
     track.style.transform = `translateX(${-this._manualOffsetPx}px)`;
   }
 
-  _autoScrollTick() {
+  _autoScrollTick(time) {
+    this._scrollRafId = requestAnimationFrame((t) => this._autoScrollTick(t));
+
     const found = this._manualScrollTrack();
-    if (!found) return;
+    if (!found) {
+      this._lastScrollFrameTime = null;
+      return;
+    }
     const { track, groupWidth } = found;
 
-    if (!this._dragState && Date.now() >= this._manualScrollPausedUntil) {
-      const durationSeconds = this._tickerDurationSeconds || 20;
-      this._manualOffsetPx += groupWidth / (durationSeconds * 20);
+    const dt = this._lastScrollFrameTime == null ? 0 : (time - this._lastScrollFrameTime) / 1000;
+    this._lastScrollFrameTime = time;
+
+    if (!this._dragState && Date.now() >= this._manualScrollPausedUntil && dt > 0) {
+      const speed = Number(this._config?.ticker_speed) || 1;
+      this._manualOffsetPx += MANUAL_SCROLL_BASE_PX_PER_SECOND * speed * dt;
     }
 
     if (this._manualOffsetPx >= groupWidth) this._manualOffsetPx -= groupWidth;
@@ -717,8 +728,12 @@ class K93AnsBannerCard extends HTMLElement {
     if (tickerHtml !== this._lastTickerHtml) {
       this._lastTickerHtml = tickerHtml;
       this._tickerHostEl.innerHTML = tickerHtml;
-      const found = this._manualScrollTrack();
-      if (found) this._applyManualOffset(found.track);
+      if (cfg.ticker_manual_scroll) {
+        const track = this._tickerHostEl.querySelector(".ticker-track");
+        this._manualGroupWidth = track ? track.scrollWidth / 2 : 0;
+        const found = this._manualScrollTrack();
+        if (found) this._applyManualOffset(found.track);
+      }
     }
   }
 
