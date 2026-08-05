@@ -1,4 +1,6 @@
 
+const CARD_VERSION = "0.1.46";
+
 const IMPORTANCE_LEVELS = ["low", "normal", "high", "critical"];
 const BUILTIN_CHANNEL_KEYS = ["info", "alert", "event", "reminder", "security", "system"];
 const LOCALE_TAG = { en: "en", no: "nb-NO" };
@@ -858,6 +860,12 @@ class K93AnsBannerCardEditor extends HTMLElement {
         );
       });
       this.appendChild(this._form);
+
+      const versionEl = document.createElement("div");
+      versionEl.textContent = `K93 ANS Banner Card v${CARD_VERSION}`;
+      versionEl.style.cssText =
+        "text-align: right; font-size: 0.75em; opacity: 0.5; padding: 4px 2px 0;";
+      this.appendChild(versionEl);
     }
     this._updateForm();
   }
@@ -925,102 +933,156 @@ class K93AnsBannerCardEditor extends HTMLElement {
     }));
 
     return [
-      { name: "title_icon", selector: { icon: {} } },
       {
-        name: "title_icon_size",
-        selector: { number: { min: 12, max: 64, step: 1, mode: "box", unit_of_measurement: "px" } },
-      },
-      { name: "title_icon_color", selector: { text: {} } },
-      { name: "title_icon_background", selector: { text: {} } },
-      { name: "unacknowledged_effects", selector: { boolean: {} } },
-      { name: "unacknowledged_icon", selector: { icon: {} } },
-      { name: "unacknowledged_icon_color", selector: { text: {} } },
-      { name: "unacknowledged_pulse_color", selector: { text: {} } },
-      {
-        name: "unacknowledged_pulse_effect",
-        selector: {
-          select: {
-            options: [
-              { value: "radar", label: "Radar (two expanding rings)" },
-              { value: "ring", label: "Ring (single expanding ring)" },
-              { value: "glow", label: "Glow (soft breathing glow)" },
-              { value: "flash", label: "Flash (badge flashes to the pulse color)" },
-              { value: "outline", label: "Outline (fixed-size ring, pulses opacity)" },
-              { value: "shake", label: "Shake (badge wiggles side to side)" },
-            ],
+        name: "group_title_icon",
+        type: "expandable",
+        title: "Title icon",
+        expanded: true,
+        flatten: true,
+        schema: [
+          { name: "title_icon", selector: { icon: {} } },
+          {
+            name: "title_icon_size",
+            selector: { number: { min: 12, max: 64, step: 1, mode: "box", unit_of_measurement: "px" } },
           },
-        },
+          { name: "title_icon_color", selector: { text: {} } },
+          { name: "title_icon_background", selector: { text: {} } },
+        ],
       },
       {
-        name: "unacknowledged_pulse_size",
-        selector: { number: { min: 1.1, max: 4, step: 0.1, mode: "box" } },
-      },
-      {
-        name: "unacknowledged_pulse_speed",
-        selector: { number: { min: 0.3, max: 6, step: 0.1, mode: "box", unit_of_measurement: "s" } },
-      },
-      { name: "unacknowledged_badge_color", selector: { text: {} } },
-      { name: "unacknowledged_badge_text_color", selector: { text: {} } },
-      { name: "language", selector: languageSelector },
-      { name: "channels_mode", selector: channelModeSelector },
-      { name: "channels", selector: channelSelector },
-      { name: "min_importance", selector: { select: { options: importanceOptions } } },
-      ...perChannelImportanceFields,
-      { name: "ticker_limit", selector: { number: { min: 1, max: 500, mode: "box" } } },
-      {
-        name: "ticker_font_size",
-        selector: { number: { min: 0.5, max: 3, step: 0.05, mode: "box" } },
-      },
-      { name: "ticker_text_color", selector: { text: {} } },
-      { name: "ticker_font_family", selector: { text: {} } },
-      {
-        name: "ticker_font_style",
-        selector: {
-          select: {
-            options: [
-              { value: "regular", label: "Regular" },
-              { value: "bold", label: "Bold" },
-              { value: "italic", label: "Italic" },
-              { value: "bold_italic", label: "Bold italic" },
-            ],
+        name: "group_unacknowledged",
+        type: "expandable",
+        title: "Unacknowledged indicator",
+        expanded: true,
+        flatten: true,
+        schema: [
+          { name: "unacknowledged_effects", selector: { boolean: {} } },
+          { name: "unacknowledged_icon", selector: { icon: {} } },
+          { name: "unacknowledged_icon_color", selector: { text: {} } },
+          { name: "unacknowledged_pulse_color", selector: { text: {} } },
+          {
+            name: "unacknowledged_pulse_effect",
+            selector: {
+              select: {
+                options: [
+                  { value: "radar", label: "Radar (two expanding rings)" },
+                  { value: "ring", label: "Ring (single expanding ring)" },
+                  { value: "glow", label: "Glow (soft breathing glow)" },
+                  { value: "flash", label: "Flash (badge flashes to the pulse color)" },
+                  { value: "outline", label: "Outline (fixed-size ring, pulses opacity)" },
+                  { value: "shake", label: "Shake (badge wiggles side to side)" },
+                ],
+              },
+            },
           },
-        },
+          {
+            name: "unacknowledged_pulse_size",
+            selector: { number: { min: 1.1, max: 4, step: 0.1, mode: "box" } },
+          },
+          {
+            name: "unacknowledged_pulse_speed",
+            selector: { number: { min: 0.3, max: 6, step: 0.1, mode: "box", unit_of_measurement: "s" } },
+          },
+          { name: "unacknowledged_badge_color", selector: { text: {} } },
+          { name: "unacknowledged_badge_text_color", selector: { text: {} } },
+        ],
       },
       {
-        name: "ticker_icon_size",
-        selector: { number: { min: 0.5, max: 3, step: 0.05, mode: "box" } },
-      },
-      { name: "ticker_manual_scroll", selector: { boolean: {} } },
-      {
-        name: "ticker_manual_scroll_pause",
-        selector: { number: { min: 0, max: 60, step: 1, mode: "box", unit_of_measurement: "s" } },
-      },
-      {
-        name: "ticker_manual_scroll_start_delay",
-        selector: { number: { min: 0, max: 30, step: 1, mode: "box", unit_of_measurement: "s" } },
-      },
-      {
-        name: "ticker_manual_scroll_ramp",
-        selector: { number: { min: 0, max: 15, step: 0.5, mode: "box", unit_of_measurement: "s" } },
+        name: "group_filtering",
+        type: "expandable",
+        title: "Notifications & filtering",
+        expanded: true,
+        flatten: true,
+        schema: [
+          { name: "language", selector: languageSelector },
+          { name: "channels_mode", selector: channelModeSelector },
+          { name: "channels", selector: channelSelector },
+          { name: "min_importance", selector: { select: { options: importanceOptions } } },
+          ...perChannelImportanceFields,
+          { name: "max_items", selector: { number: { min: 1, max: 500, mode: "box" } } },
+        ],
       },
       {
-        name: "ticker_speed",
-        selector: { number: { min: 0.25, max: 4, step: 0.25, mode: "box" } },
+        name: "group_ticker_text",
+        type: "expandable",
+        title: "Ticker text",
+        expanded: true,
+        flatten: true,
+        schema: [
+          { name: "ticker_limit", selector: { number: { min: 1, max: 500, mode: "box" } } },
+          {
+            name: "ticker_font_size",
+            selector: { number: { min: 0.5, max: 3, step: 0.05, mode: "box" } },
+          },
+          { name: "ticker_text_color", selector: { text: {} } },
+          { name: "ticker_font_family", selector: { text: {} } },
+          {
+            name: "ticker_font_style",
+            selector: {
+              select: {
+                options: [
+                  { value: "regular", label: "Regular" },
+                  { value: "bold", label: "Bold" },
+                  { value: "italic", label: "Italic" },
+                  { value: "bold_italic", label: "Bold italic" },
+                ],
+              },
+            },
+          },
+          {
+            name: "ticker_icon_size",
+            selector: { number: { min: 0.5, max: 3, step: 0.05, mode: "box" } },
+          },
+          {
+            name: "ticker_speed",
+            selector: { number: { min: 0.25, max: 4, step: 0.25, mode: "box" } },
+          },
+        ],
       },
-      { name: "max_items", selector: { number: { min: 1, max: 500, mode: "box" } } },
       {
-        name: "card_height",
-        selector: { number: { min: 30, max: 500, step: 5, mode: "box", unit_of_measurement: "px" } },
+        name: "group_manual_scroll",
+        type: "expandable",
+        title: "Manual scroll",
+        expanded: true,
+        flatten: true,
+        schema: [
+          { name: "ticker_manual_scroll", selector: { boolean: {} } },
+          {
+            name: "ticker_manual_scroll_pause",
+            selector: { number: { min: 0, max: 60, step: 1, mode: "box", unit_of_measurement: "s" } },
+          },
+          {
+            name: "ticker_manual_scroll_start_delay",
+            selector: { number: { min: 0, max: 30, step: 1, mode: "box", unit_of_measurement: "s" } },
+          },
+          {
+            name: "ticker_manual_scroll_ramp",
+            selector: { number: { min: 0, max: 15, step: 0.5, mode: "box", unit_of_measurement: "s" } },
+          },
+        ],
       },
-      { name: "card_background_color", selector: { text: {} } },
       {
-        name: "card_border_radius",
-        selector: { number: { min: 0, max: 100, step: 1, mode: "box", unit_of_measurement: "px" } },
-      },
-      { name: "card_border_color", selector: { text: {} } },
-      {
-        name: "card_border_width",
-        selector: { number: { min: 0, max: 20, step: 1, mode: "box", unit_of_measurement: "px" } },
+        name: "group_card_appearance",
+        type: "expandable",
+        title: "Card appearance",
+        expanded: true,
+        flatten: true,
+        schema: [
+          {
+            name: "card_height",
+            selector: { number: { min: 30, max: 500, step: 5, mode: "box", unit_of_measurement: "px" } },
+          },
+          { name: "card_background_color", selector: { text: {} } },
+          {
+            name: "card_border_radius",
+            selector: { number: { min: 0, max: 100, step: 1, mode: "box", unit_of_measurement: "px" } },
+          },
+          { name: "card_border_color", selector: { text: {} } },
+          {
+            name: "card_border_width",
+            selector: { number: { min: 0, max: 20, step: 1, mode: "box", unit_of_measurement: "px" } },
+          },
+        ],
       },
       { name: "tap_action", selector: { ui_action: {} } },
     ];
@@ -1040,6 +1102,12 @@ class K93AnsBannerCardEditor extends HTMLElement {
 }
 
 K93AnsBannerCardEditor.LABELS = {
+  group_title_icon: "Title icon",
+  group_unacknowledged: "Unacknowledged indicator",
+  group_filtering: "Notifications & filtering",
+  group_ticker_text: "Ticker text",
+  group_manual_scroll: "Manual scroll",
+  group_card_appearance: "Card appearance",
   title_icon: "Title icon",
   title_icon_size: "Title icon size (px)",
   title_icon_color: "Title icon color (CSS color, blank = theme text color)",
