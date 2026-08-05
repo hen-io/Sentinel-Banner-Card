@@ -282,6 +282,9 @@ class K93AnsBannerCard extends HTMLElement {
     if (!isPaused && this._manualScrollWasPaused) this._manualScrollResumedAt = Date.now();
     this._manualScrollWasPaused = isPaused;
 
+    const viewport = track.parentElement;
+    if (viewport) viewport.classList.toggle("paused", isPaused);
+
     if (!isPaused && dt > 0) {
       const speed = Number(this._config?.ticker_speed) || 1;
       const rampMs = this._manualScrollRampMs();
@@ -598,7 +601,7 @@ class K93AnsBannerCard extends HTMLElement {
           inset: 0;
           border-radius: 999px;
           background: var(--k93-pulse-color);
-          animation: k93-radar-ping var(--k93-pulse-duration, 2s) cubic-bezier(0, 0, 0.2, 1) infinite;
+          animation: k93-radar-ping var(--k93-pulse-duration, 2s) linear infinite;
           animation-fill-mode: backwards;
         }
         .title-icon.pulsing.effect-radar::after {
@@ -657,7 +660,7 @@ class K93AnsBannerCard extends HTMLElement {
           align-items: center;
           gap: 8px;
           width: 100%;
-          padding: 10px 16px;
+          padding: 6px 12px;
           box-sizing: border-box;
         }
         .ticker-viewport {
@@ -675,6 +678,10 @@ class K93AnsBannerCard extends HTMLElement {
           cursor: grab;
         }
         .ticker-viewport.manual-scroll.dragging { cursor: grabbing; }
+        .ticker-viewport.manual-scroll.paused {
+          -webkit-mask-image: none;
+          mask-image: none;
+        }
         .ticker-track {
           display: inline-block;
           white-space: nowrap;
