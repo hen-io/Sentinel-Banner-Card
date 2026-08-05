@@ -4,6 +4,7 @@ const BUILTIN_CHANNEL_KEYS = ["info", "alert", "event", "reminder", "security", 
 const LOCALE_TAG = { en: "en", no: "nb-NO" };
 const MANUAL_SCROLL_BASE_PX_PER_SECOND = 50;
 const DRAG_CLICK_SUPPRESS_THRESHOLD_PX = 5;
+const TICKER_EDGE_FADE_PX = 24;
 
 function fireDomEvent(node, type, detail) {
   const event = new CustomEvent(type, { bubbles: true, cancelable: false, composed: true, detail });
@@ -151,6 +152,7 @@ class K93AnsBannerCard extends HTMLElement {
     this._dragMoved = false;
     this._manualScrollWasPaused = true;
     this._manualScrollResumedAt = null;
+    this._manualEdgeInsetPx = TICKER_EDGE_FADE_PX;
   }
 
   setConfig(config) {
@@ -261,8 +263,8 @@ class K93AnsBannerCard extends HTMLElement {
     return { track, groupWidth: this._manualGroupWidth };
   }
 
-  _applyManualOffset(track) {
-    track.style.transform = `translateX(${-this._manualOffsetPx}px)`;
+  _applyManualOffset(track, extraInsetPx = 0) {
+    track.style.transform = `translateX(${extraInsetPx - this._manualOffsetPx}px)`;
   }
 
   _autoScrollTick(time) {
@@ -282,22 +284,25 @@ class K93AnsBannerCard extends HTMLElement {
     if (!isPaused && this._manualScrollWasPaused) this._manualScrollResumedAt = Date.now();
     this._manualScrollWasPaused = isPaused;
 
-    const viewport = track.parentElement;
-    if (viewport) viewport.classList.toggle("paused", isPaused);
+    const rampMs = this._manualScrollRampMs();
+    const rampMultiplier = isPaused
+      ? 0
+      : (rampMs > 0 && this._manualScrollResumedAt != null)
+        ? Math.min(1, (Date.now() - this._manualScrollResumedAt) / rampMs)
+        : 1;
 
     if (!isPaused && dt > 0) {
       const speed = Number(this._config?.ticker_speed) || 1;
-      const rampMs = this._manualScrollRampMs();
-      const rampMultiplier = (rampMs > 0 && this._manualScrollResumedAt != null)
-        ? Math.min(1, (Date.now() - this._manualScrollResumedAt) / rampMs)
-        : 1;
       this._manualOffsetPx += MANUAL_SCROLL_BASE_PX_PER_SECOND * speed * rampMultiplier * dt;
     }
 
     if (this._manualOffsetPx >= groupWidth) this._manualOffsetPx -= groupWidth;
     else if (this._manualOffsetPx < 0) this._manualOffsetPx += groupWidth;
 
-    this._applyManualOffset(track);
+    if (!this._dragState) {
+      this._manualEdgeInsetPx = TICKER_EDGE_FADE_PX * (1 - rampMultiplier);
+      this._applyManualOffset(track, this._manualEdgeInsetPx);
+    }
   }
 
   _manualScrollPauseMs() {
@@ -668,8 +673,8 @@ class K93AnsBannerCard extends HTMLElement {
           min-width: 0;
           overflow: hidden;
           white-space: nowrap;
-          -webkit-mask-image: linear-gradient(to right, transparent 0, black 24px, black calc(100% - 24px), transparent 100%);
-          mask-image: linear-gradient(to right, transparent 0, black 24px, black calc(100% - 24px), transparent 100%);
+          -webkit-mask-image: linear-gradient(to right, transparent 0, black ${TICKER_EDGE_FADE_PX}px, black calc(100% - ${TICKER_EDGE_FADE_PX}px), transparent 100%);
+          mask-image: linear-gradient(to right, transparent 0, black ${TICKER_EDGE_FADE_PX}px, black calc(100% - ${TICKER_EDGE_FADE_PX}px), transparent 100%);
         }
         .ticker-viewport.manual-scroll {
           touch-action: none;
@@ -678,10 +683,6 @@ class K93AnsBannerCard extends HTMLElement {
           cursor: grab;
         }
         .ticker-viewport.manual-scroll.dragging { cursor: grabbing; }
-        .ticker-viewport.manual-scroll.paused {
-          -webkit-mask-image: none;
-          mask-image: none;
-        }
         .ticker-track {
           display: inline-block;
           white-space: nowrap;
@@ -773,7 +774,7 @@ class K93AnsBannerCard extends HTMLElement {
         const track = this._tickerHostEl.querySelector(".ticker-track");
         this._manualGroupWidth = track ? track.scrollWidth / 2 : 0;
         const found = this._manualScrollTrack();
-        if (found) this._applyManualOffset(found.track);
+        if (found) this._applyManualOffset(found.track, this._manualEdgeInsetPx);
       }
     }
   }
