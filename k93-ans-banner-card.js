@@ -202,6 +202,13 @@ class K93AnsBannerCard extends HTMLElement {
     return 1;
   }
 
+  getGridOptions() {
+    const cfg = this._config;
+    if (!cfg?.card_height) return undefined;
+    const rows = Math.max(1, Math.round((Number(cfg.card_height) + 8) / 64));
+    return { rows };
+  }
+
   connectedCallback() {
     if (!this._clockInterval) {
       this._clockInterval = setInterval(() => this._render(), 30000);
