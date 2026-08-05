@@ -1,5 +1,5 @@
 
-const CARD_VERSION = "0.1.47";
+const CARD_VERSION = "0.1.48";
 
 const IMPORTANCE_LEVELS = ["low", "normal", "high", "critical"];
 const BUILTIN_CHANNEL_KEYS = ["info", "alert", "event", "reminder", "security", "system"];
@@ -667,7 +667,7 @@ class K93AnsBannerCard extends HTMLElement {
         .ticker-wrap {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 5px;
           width: 100%;
           padding: 6px 12px;
           box-sizing: border-box;
