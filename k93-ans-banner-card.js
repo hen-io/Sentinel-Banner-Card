@@ -483,7 +483,6 @@ class K93AnsBannerCard extends HTMLElement {
     const speed = Number(cfg.ticker_speed) || 1;
     const baseLoopSeconds = Math.min(items.length * 5, 120);
     const duration = Math.max(4, baseLoopSeconds / speed);
-    this._tickerDurationSeconds = duration;
     const fontSize = Number(cfg.ticker_font_size) || 1;
     const iconScale = Number(cfg.ticker_icon_size) || 1;
     const { weight: fontWeight, style: fontStyle } = fontStyleToCss(cfg.ticker_font_style);
