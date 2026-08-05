@@ -159,6 +159,7 @@ class K93AnsBannerCard extends HTMLElement {
       title_icon_size: 24,
       title_icon_color: null,
       title_icon_background: null,
+      unacknowledged_effects: true,
       unacknowledged_icon: null,
       unacknowledged_icon_color: null,
       unacknowledged_pulse_color: null,
@@ -493,8 +494,9 @@ class K93AnsBannerCard extends HTMLElement {
     const cfg = this._config;
     const all = this._notifications || [];
     const unacknowledged = all.filter((n) => n.requires_ack && !n.acknowledged && n.show_in_history !== false);
-    const hasUnacknowledged = unacknowledged.length > 0;
-    const iconHtml = this._titleIconHtml(hasUnacknowledged, unacknowledged.length);
+    const effectsEnabled = cfg.unacknowledged_effects !== false;
+    const hasUnacknowledged = effectsEnabled && unacknowledged.length > 0;
+    const iconHtml = this._titleIconHtml(hasUnacknowledged, effectsEnabled ? unacknowledged.length : 0);
     const items = all
       .filter((n) => matchesFilter(n, cfg.channels, cfg.min_importance, cfg.channels_mode, perChannelImportanceFromConfig(cfg)))
       .slice(0, cfg.ticker_limit ?? 10);
@@ -775,6 +777,7 @@ class K93AnsBannerCard extends HTMLElement {
       title_icon_size: 24,
       title_icon_color: null,
       title_icon_background: null,
+      unacknowledged_effects: true,
       unacknowledged_icon: null,
       unacknowledged_icon_color: null,
       unacknowledged_pulse_color: null,
@@ -921,6 +924,7 @@ class K93AnsBannerCardEditor extends HTMLElement {
       },
       { name: "title_icon_color", selector: { text: {} } },
       { name: "title_icon_background", selector: { text: {} } },
+      { name: "unacknowledged_effects", selector: { boolean: {} } },
       { name: "unacknowledged_icon", selector: { icon: {} } },
       { name: "unacknowledged_icon_color", selector: { text: {} } },
       { name: "unacknowledged_pulse_color", selector: { text: {} } },
@@ -1032,6 +1036,7 @@ K93AnsBannerCardEditor.LABELS = {
   title_icon_size: "Title icon size (px)",
   title_icon_color: "Title icon color (CSS color, blank = theme text color)",
   title_icon_background: "Title icon backdrop (CSS color, blank = none)",
+  unacknowledged_effects: "React to unacknowledged notifications (icon/color/pulse/badge)",
   unacknowledged_icon: "Icon while unacknowledged notifications exist (blank = keep title icon)",
   unacknowledged_icon_color: "Icon color while unacknowledged (CSS color, blank = title icon color)",
   unacknowledged_pulse_color: "Pulsing effect color while unacknowledged (CSS color, blank = no pulse)",
