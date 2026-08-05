@@ -1,5 +1,5 @@
 
-const CARD_VERSION = "0.1.46";
+const CARD_VERSION = "0.1.47";
 
 const IMPORTANCE_LEVELS = ["low", "normal", "high", "critical"];
 const BUILTIN_CHANNEL_KEYS = ["info", "alert", "event", "reminder", "security", "system"];
@@ -302,7 +302,9 @@ class K93AnsBannerCard extends HTMLElement {
     else if (this._manualOffsetPx < 0) this._manualOffsetPx += groupWidth;
 
     if (!this._dragState) {
-      this._manualEdgeInsetPx = TICKER_EDGE_FADE_PX * (1 - rampMultiplier);
+      const positionFactor = Math.max(0, 1 - this._manualOffsetPx / TICKER_EDGE_FADE_PX);
+      const activityFactor = isPaused ? 1 : Math.max(0, 1 - rampMultiplier);
+      this._manualEdgeInsetPx = TICKER_EDGE_FADE_PX * positionFactor * activityFactor;
       this._applyManualOffset(track, this._manualEdgeInsetPx);
     }
   }
