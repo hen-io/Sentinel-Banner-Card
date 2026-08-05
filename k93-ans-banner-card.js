@@ -140,6 +140,10 @@ class K93AnsBannerCard extends HTMLElement {
     this._notifications = [];
     this._subscribed = false;
     this._unsubscribe = null;
+    this._manualScrollPausedUntil = 0;
+    this._rafId = null;
+    this._lastFrameTime = null;
+    this._dragState = null;
   }
 
   setConfig(config) {
@@ -166,6 +170,7 @@ class K93AnsBannerCard extends HTMLElement {
       ticker_font_family: null,
       ticker_font_style: "regular",
       ticker_icon_size: 1,
+      ticker_manual_scroll: false,
       ticker_speed: 1,
       max_items: 50,
       card_height: null,
@@ -213,6 +218,10 @@ class K93AnsBannerCard extends HTMLElement {
     if (!this._clockInterval) {
       this._clockInterval = setInterval(() => this._render(), 30000);
     }
+    if (!this._rafId) {
+      this._lastFrameTime = null;
+      this._rafId = requestAnimationFrame((t) => this._autoScrollTick(t));
+    }
   }
 
   disconnectedCallback() {
@@ -225,6 +234,70 @@ class K93AnsBannerCard extends HTMLElement {
       clearInterval(this._clockInterval);
       this._clockInterval = null;
     }
+    if (this._rafId) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = null;
+    }
+  }
+
+  _autoScrollTick(time) {
+    this._rafId = requestAnimationFrame((t) => this._autoScrollTick(t));
+
+    const cfg = this._config;
+    if (!cfg?.ticker_manual_scroll) {
+      this._lastFrameTime = null;
+      return;
+    }
+    const viewport = this._tickerHostEl?.querySelector(".ticker-viewport.manual-scroll");
+    const track = viewport?.querySelector(".ticker-track");
+    const groupWidth = track ? track.scrollWidth / 2 : 0;
+    if (!viewport || !groupWidth) {
+      this._lastFrameTime = null;
+      return;
+    }
+
+    const dt = this._lastFrameTime == null ? 0 : (time - this._lastFrameTime) / 1000;
+    this._lastFrameTime = time;
+
+    if (!this._dragState && Date.now() >= this._manualScrollPausedUntil && dt > 0) {
+      const pixelsPerSecond = groupWidth / (this._tickerDurationSeconds || 20);
+      viewport.scrollLeft += pixelsPerSecond * dt;
+    }
+
+    if (viewport.scrollLeft >= groupWidth) viewport.scrollLeft -= groupWidth;
+    else if (viewport.scrollLeft < 0) viewport.scrollLeft += groupWidth;
+  }
+
+  _setupManualScrollDrag() {
+    const markInteraction = () => {
+      this._manualScrollPausedUntil = Date.now() + 10000;
+    };
+    this._tickerHostEl.addEventListener("wheel", (ev) => {
+      if (ev.target.closest(".ticker-viewport.manual-scroll")) markInteraction();
+    }, { passive: true });
+    this._tickerHostEl.addEventListener("pointerdown", (ev) => {
+      const viewport = ev.target.closest(".ticker-viewport.manual-scroll");
+      if (!viewport) return;
+      markInteraction();
+      this._dragState = { viewport, startX: ev.clientX, startScrollLeft: viewport.scrollLeft, pointerId: ev.pointerId };
+      viewport.classList.add("dragging");
+      viewport.setPointerCapture(ev.pointerId);
+    });
+    this._tickerHostEl.addEventListener("pointermove", (ev) => {
+      const drag = this._dragState;
+      if (!drag || ev.pointerId !== drag.pointerId) return;
+      drag.viewport.scrollLeft = drag.startScrollLeft - (ev.clientX - drag.startX);
+      markInteraction();
+    });
+    const endDrag = (ev) => {
+      const drag = this._dragState;
+      if (!drag || ev.pointerId !== drag.pointerId) return;
+      drag.viewport.classList.remove("dragging");
+      drag.viewport.releasePointerCapture(ev.pointerId);
+      this._dragState = null;
+    };
+    this._tickerHostEl.addEventListener("pointerup", endDrag);
+    this._tickerHostEl.addEventListener("pointercancel", endDrag);
   }
 
   async _subscribe() {
@@ -384,6 +457,7 @@ class K93AnsBannerCard extends HTMLElement {
     const speed = Number(cfg.ticker_speed) || 1;
     const baseLoopSeconds = Math.min(items.length * 5, 120);
     const duration = Math.max(4, baseLoopSeconds / speed);
+    this._tickerDurationSeconds = duration;
     const fontSize = Number(cfg.ticker_font_size) || 1;
     const iconScale = Number(cfg.ticker_icon_size) || 1;
     const { weight: fontWeight, style: fontStyle } = fontStyleToCss(cfg.ticker_font_style);
@@ -393,12 +467,13 @@ class K93AnsBannerCard extends HTMLElement {
       ` --k93-ticker-font-weight: ${fontWeight}; --k93-ticker-font-style: ${fontStyle};` +
       (cfg.ticker_text_color ? ` --k93-ticker-text-color: ${esc(cfg.ticker_text_color)};` : "") +
       (cfg.ticker_font_family ? ` --k93-ticker-font-family: ${esc(cfg.ticker_font_family)};` : "");
+    const manualScroll = Boolean(cfg.ticker_manual_scroll);
 
     return `
       <div class="ticker-wrap">
         ${iconHtml}
-        <div class="ticker-viewport">
-          <div class="ticker-track" style="${trackStyle}">
+        <div class="ticker-viewport${manualScroll ? " manual-scroll" : ""}">
+          <div class="ticker-track${manualScroll ? "" : " auto-scroll"}" style="${trackStyle}">
             ${group}${group}
           </div>
         </div>
@@ -541,17 +616,27 @@ class K93AnsBannerCard extends HTMLElement {
           -webkit-mask-image: linear-gradient(to right, transparent 0, black 24px, black calc(100% - 24px), transparent 100%);
           mask-image: linear-gradient(to right, transparent 0, black 24px, black calc(100% - 24px), transparent 100%);
         }
+        .ticker-viewport.manual-scroll {
+          overflow-x: auto;
+          scrollbar-width: none;
+          touch-action: none;
+          cursor: grab;
+        }
+        .ticker-viewport.manual-scroll::-webkit-scrollbar { display: none; }
+        .ticker-viewport.manual-scroll.dragging { cursor: grabbing; }
         .ticker-track {
           display: inline-block;
           white-space: nowrap;
-          animation-name: k93-ticker;
-          animation-timing-function: linear;
-          animation-iteration-count: infinite;
           color: var(--k93-ticker-text-color, var(--primary-text-color));
           font-family: var(--k93-ticker-font-family, inherit);
           font-weight: var(--k93-ticker-font-weight, normal);
           font-style: var(--k93-ticker-font-style, normal);
           line-height: 1.4;
+        }
+        .ticker-track.auto-scroll {
+          animation-name: k93-ticker;
+          animation-timing-function: linear;
+          animation-iteration-count: infinite;
         }
         .ticker-item {
           display: inline-flex;
@@ -607,6 +692,7 @@ class K93AnsBannerCard extends HTMLElement {
           handleTapAction(this, this._hass, this._config.tap_action);
         }
       });
+      this._setupManualScrollDrag();
     }
 
     if (cardThemeStyles.length) {
@@ -648,6 +734,7 @@ class K93AnsBannerCard extends HTMLElement {
       ticker_font_family: null,
       ticker_font_style: "regular",
       ticker_icon_size: 1,
+      ticker_manual_scroll: false,
       ticker_speed: 1,
       max_items: 50,
       card_height: null,
@@ -829,6 +916,7 @@ class K93AnsBannerCardEditor extends HTMLElement {
         name: "ticker_icon_size",
         selector: { number: { min: 0.5, max: 3, step: 0.05, mode: "box" } },
       },
+      { name: "ticker_manual_scroll", selector: { boolean: {} } },
       {
         name: "ticker_speed",
         selector: { number: { min: 0.25, max: 4, step: 0.25, mode: "box" } },
@@ -888,6 +976,7 @@ K93AnsBannerCardEditor.LABELS = {
   ticker_font_family: "Ticker font family (CSS font-family, blank = theme default)",
   ticker_font_style: "Ticker text style",
   ticker_icon_size: "Per-notification icon size (x text size)",
+  ticker_manual_scroll: "Allow manual scroll/drag (pauses auto-scroll for 10s after)",
   ticker_speed: "Scroll speed (x)",
   max_items: "Max records fetched",
   card_height: "Card height (px, blank = auto-fit to the ticker line)",
