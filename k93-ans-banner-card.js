@@ -1,5 +1,5 @@
 
-const CARD_VERSION = "0.1.49";
+const CARD_VERSION = "0.1.50";
 
 const IMPORTANCE_LEVELS = ["low", "normal", "high", "critical"];
 const BUILTIN_CHANNEL_KEYS = ["info", "alert", "event", "reminder", "security", "system"];
@@ -121,19 +121,40 @@ function matchesFilter(record, channels, minImportance, channelMode, perChannelI
   return recordRank >= importanceRank(minImportance || "low");
 }
 
+const _timeFormatters = new Map();
+const _weekdayFormatters = new Map();
+function timeFormatter(locale) {
+  const key = locale || "";
+  let f = _timeFormatters.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+    _timeFormatters.set(key, f);
+  }
+  return f;
+}
+function weekdayFormatter(locale) {
+  const key = locale || "";
+  let f = _weekdayFormatters.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, { weekday: "long" });
+    _weekdayFormatters.set(key, f);
+  }
+  return f;
+}
+
 function formatRelativeTime(iso, locale, lang) {
   if (!iso) return "";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
 
   const strings = STRINGS[lang] || STRINGS.en;
-  const time = date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+  const time = timeFormatter(locale).format(date);
   const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const diffDays = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86400000);
 
   if (diffDays === 0) return time;
   if (diffDays === 1) return `${strings.yesterday} ${time}`;
-  const weekday = date.toLocaleDateString(locale, { weekday: "long" });
+  const weekday = weekdayFormatter(locale).format(date);
   const capitalizedWeekday = weekday.charAt(0).toUpperCase() + weekday.slice(1);
   return `${capitalizedWeekday} ${time}`;
 }
@@ -156,6 +177,7 @@ class K93AnsBannerCard extends HTMLElement {
     this._manualScrollWasPaused = true;
     this._manualScrollResumedAt = null;
     this._manualEdgeInsetPx = TICKER_EDGE_FADE_PX;
+    this._autoScrollTick = this._autoScrollTick.bind(this);
   }
 
   setConfig(config) {
@@ -239,7 +261,7 @@ class K93AnsBannerCard extends HTMLElement {
       this._manualScrollPausedUntil = Date.now() + this._manualScrollStartDelayMs();
       this._manualScrollWasPaused = true;
       this._manualScrollResumedAt = null;
-      this._scrollRafId = requestAnimationFrame((t) => this._autoScrollTick(t));
+      this._scrollRafId = requestAnimationFrame(this._autoScrollTick);
     }
   }
 
@@ -271,7 +293,7 @@ class K93AnsBannerCard extends HTMLElement {
   }
 
   _autoScrollTick(time) {
-    this._scrollRafId = requestAnimationFrame((t) => this._autoScrollTick(t));
+    this._scrollRafId = requestAnimationFrame(this._autoScrollTick);
 
     const found = this._manualScrollTrack();
     if (!found) {
@@ -524,8 +546,9 @@ class K93AnsBannerCard extends HTMLElement {
     const effectsEnabled = cfg.unacknowledged_effects !== false;
     const hasUnacknowledged = effectsEnabled && unacknowledged.length > 0;
     const iconHtml = this._titleIconHtml(hasUnacknowledged, effectsEnabled ? unacknowledged.length : 0);
+    const perChannelImportance = perChannelImportanceFromConfig(cfg);
     const items = all
-      .filter((n) => matchesFilter(n, cfg.channels, cfg.min_importance, cfg.channels_mode, perChannelImportanceFromConfig(cfg)))
+      .filter((n) => matchesFilter(n, cfg.channels, cfg.min_importance, cfg.channels_mode, perChannelImportance))
       .slice(0, cfg.ticker_limit ?? 10);
 
     if (!items.length) {
