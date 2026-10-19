@@ -1,15 +1,12 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="banner-logo.png">
-    <img src="custom_components/k93_ans/brand/logo.png" alt="K93 ANS" height="100%">
-  </picture>
+  <img src="logo.png" alt="Sentinel" height="100%">
 </p>
 
-# K93 Advanced Notification System - Banner lovelace card
+# Sentinel - Banner lovelace card
 
 A Home Assistant Lovelace card showing notification history and outstanding unacknowledged
-notifications from the **k93-ans** integration, with an optional full-width scrolling ticker.
+notifications from the **Sentinel** integration, with an optional full-width scrolling ticker.
 
-[![Open your Home Assistant instance and add this repository to HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=henriklud&repository=K93-ANS-BANNER-CARD&category=plugin)
+[![Open your Home Assistant instance and add this repository to HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=hen-io&repository=Sentinel-Banner-Card&category=plugin)
 
 
