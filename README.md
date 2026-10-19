@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" alt="Sentinel" height="100%">
+  <img src="icon.png" alt="Sentinel" height="100%">
 </p>
 
 # Sentinel - Banner lovelace card
