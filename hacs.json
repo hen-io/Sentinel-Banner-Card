@@ -1,6 +1,6 @@
 {
-  "name": "K93 ANS Banner Card",
-  "filename": "k93-ans-banner-card.js",
+  "name": "Sentinel Banner Card",
+  "filename": "sentinel-banner-card.js",
   "render_readme": true,
   "homeassistant": "2026.6.0"
 }

@@ -1,8 +1,10 @@
 
-const CARD_VERSION = "0.1.50";
+const CARD_VERSION = "1.1.0";
+const CARD_TAG = "sentinel-banner-card";
+const LEGACY_CARD_TAG = "k93-ans-banner-card";
 
 const IMPORTANCE_LEVELS = ["low", "normal", "high", "critical"];
-const BUILTIN_CHANNEL_KEYS = ["info", "alert", "event", "reminder", "security", "system"];
+const BUILTIN_CHANNEL_KEYS = ["info", "alert", "event", "reminder", "security", "system", "chat"];
 const LOCALE_TAG = { en: "en", no: "nb-NO" };
 const MANUAL_SCROLL_BASE_PX_PER_SECOND = 50;
 const DRAG_CLICK_SUPPRESS_THRESHOLD_PX = 5;
@@ -86,39 +88,136 @@ function fontStyleToCss(value) {
 }
 
 const CHANNEL_IMPORTANCE_PREFIX = "channel_importance__";
+const CHANNEL_LABELS_PREFIX = "channel_labels__";
 
-function perChannelImportanceFromConfig(cfg) {
+function prefixedConfigMap(cfg, prefix) {
   const map = {};
-  for (const key of Object.keys(cfg || {})) {
-    if (key.startsWith(CHANNEL_IMPORTANCE_PREFIX) && cfg[key]) {
-      map[key.slice(CHANNEL_IMPORTANCE_PREFIX.length)] = cfg[key];
+  for (const [key, value] of Object.entries(cfg || {})) {
+    if (key.startsWith(prefix) && value && (!Array.isArray(value) || value.length)) {
+      map[key.slice(prefix.length).toLowerCase()] = value;
     }
   }
   return map;
 }
 
-function matchesFilter(record, channels, minImportance, channelMode, perChannelImportance) {
-  if (record.show_in_history === false) return false;
-  const hasList = Boolean(channels && channels.length);
-  const recordChannels = (Array.isArray(record.channels) && record.channels.length
-    ? record.channels
-    : [record.channel]
-  ).map((c) => String(c || "").toLowerCase());
-  const inList = hasList && channels.some((c) => recordChannels.includes(String(c).toLowerCase()));
-  const channelOk = channelMode === "exclude" ? !inList : !hasList || inList;
-  if (!channelOk) return false;
+function lower(value) {
+  return String(value ?? "").toLowerCase();
+}
 
-  const recordRank = importanceRank(record.importance);
-  if (channelMode !== "exclude" && hasList && perChannelImportance) {
-    const selectedLower = channels.map((c) => String(c).toLowerCase());
-    const matchingChannels = recordChannels.filter((c) => selectedLower.includes(c));
-    return matchingChannels.some((c) => {
-      const threshold = perChannelImportance[c] || minImportance || "low";
-      return recordRank >= importanceRank(threshold);
-    });
+function recordChannelKeys(record) {
+  const channels = Array.isArray(record.channels) && record.channels.length ? record.channels : [record.channel];
+  return channels.map(lower);
+}
+
+function recordLabelKeys(record) {
+  return (Array.isArray(record.labels) ? record.labels : []).map(lower);
+}
+
+function matchesFilter(record, filter) {
+  if (record.show_in_history === false) return false;
+  const selected = (filter.channels || []).map(lower);
+  const recordChannels = recordChannelKeys(record);
+  const inList = selected.some((c) => recordChannels.includes(c));
+  if (filter.mode === "exclude" ? inList : selected.length && !inList) return false;
+
+  const rank = importanceRank(record.importance);
+  if (filter.mode !== "exclude" && selected.length) {
+    const labels = recordLabelKeys(record);
+    return recordChannels
+      .filter((c) => selected.includes(c))
+      .some((c) => {
+        const threshold = filter.channelImportance?.[c] || filter.minImportance || "low";
+        const wanted = (filter.channelLabels?.[c] || []).map(lower);
+        return rank >= importanceRank(threshold) && (!wanted.length || wanted.some((l) => labels.includes(l)));
+      });
+  }
+  return rank >= importanceRank(filter.minImportance || "low");
+}
+
+const WS_PREFIXES = ["sentinel", "k93_ans"];
+let wsPrefix = null;
+
+class SentinelApi {
+  constructor() {
+    this.hass = null;
   }
 
-  return recordRank >= importanceRank(minImportance || "low");
+  get legacy() {
+    return wsPrefix !== null && wsPrefix !== WS_PREFIXES[0];
+  }
+
+  async _withPrefix(fn) {
+    if (wsPrefix) return fn(wsPrefix);
+    let lastError;
+    for (const prefix of WS_PREFIXES) {
+      try {
+        const result = await fn(prefix);
+        wsPrefix = prefix;
+        return result;
+      } catch (err) {
+        if (err?.code !== "unknown_command") throw err;
+        lastError = err;
+      }
+    }
+    throw lastError;
+  }
+
+  call(name, params = {}) {
+    return this._withPrefix((prefix) => this.hass.callWS({ ...params, type: `${prefix}/${name}` }));
+  }
+
+  subscribe(name, onEvent, params = {}) {
+    return this._withPrefix((prefix) =>
+      this.hass.connection.subscribeMessage(onEvent, { ...params, type: `${prefix}/${name}` })
+    );
+  }
+
+  async config() {
+    if (!this.legacy) {
+      try {
+        return await this.call("config");
+      } catch (err) {
+        if (err?.code !== "unknown_command") throw err;
+      }
+    }
+    const sensor = Object.values(this.hass.states).find((s) => Array.isArray(s.attributes?.channels));
+    return { channels: sensor ? sensor.attributes.channels : [] };
+  }
+}
+
+function channelDefs(config) {
+  return Array.isArray(config?.channels) ? config.channels : [];
+}
+
+function channelColor(config, record) {
+  const key = lower(record.channel);
+  return channelDefs(config).find((c) => lower(c.key) === key)?.color || "";
+}
+
+function labelName(config, key) {
+  for (const channel of channelDefs(config)) {
+    const label = (channel.labels || []).find((l) => lower(l.key) === lower(key));
+    if (label) return label.name;
+  }
+  return key;
+}
+
+function channelOptions(config) {
+  const channels = channelDefs(config);
+  if (!channels.length) return BUILTIN_CHANNEL_KEYS.map((key) => ({ value: key, label: key }));
+  return channels.map((c) => ({
+    value: c.key,
+    label: c.enabled === false ? `${c.name} (${c.key}, disabled)` : `${c.name} (${c.key})`,
+  }));
+}
+
+function labelOptions(config, channelKey) {
+  const channel = channelDefs(config).find((c) => lower(c.key) === lower(channelKey));
+  return (channel?.labels || []).map((l) => ({ value: l.key, label: l.name }));
+}
+
+function defineElement(tag, ctor) {
+  if (!customElements.get(tag)) customElements.define(tag, ctor);
 }
 
 const _timeFormatters = new Map();
@@ -159,10 +258,13 @@ function formatRelativeTime(iso, locale, lang) {
   return `${capitalizedWeekday} ${time}`;
 }
 
-class K93AnsBannerCard extends HTMLElement {
+class SentinelBannerCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
+    this._api = new SentinelApi();
+    this._sentinelConfig = null;
+    this._onReconnect = () => this._fetchList();
     this._notifications = [];
     this._subscribed = false;
     this._unsubscribe = null;
@@ -224,8 +326,10 @@ class K93AnsBannerCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    this._api.hass = hass;
     if (!this._subscribed) {
       this._subscribed = true;
+      hass.connection.addEventListener("ready", this._onReconnect);
       this._subscribe();
       this._fetchList();
       this._render();
@@ -266,11 +370,12 @@ class K93AnsBannerCard extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._hass?.connection.removeEventListener("ready", this._onReconnect);
     if (this._unsubscribe) {
       this._unsubscribe();
       this._unsubscribe = null;
-      this._subscribed = false;
     }
+    this._subscribed = false;
     if (this._clockInterval) {
       clearInterval(this._clockInterval);
       this._clockInterval = null;
@@ -389,15 +494,17 @@ class K93AnsBannerCard extends HTMLElement {
 
   async _subscribe() {
     try {
-      this._unsubscribe = await this._hass.connection.subscribeMessage(
-        (msg) => {
-          if (msg.notification) this._onUpdate(msg.notification);
-          if (msg.deleted_ids) this._onDelete(msg.deleted_ids);
-        },
-        { type: "k93_ans/subscribe" }
-      );
+      this._unsubscribe = await this._api.subscribe("subscribe", (msg) => {
+        if (msg.notification) this._onUpdate(msg.notification);
+        if (msg.deleted_ids) this._onDelete(msg.deleted_ids);
+        if (msg.config) {
+          this._sentinelConfig = msg.config;
+          this._lastTickerHtml = null;
+          this._render();
+        }
+      });
     } catch (err) {
-      console.error("k93-ans-banner-card: failed to subscribe", err);
+      console.error(`${CARD_TAG}: failed to subscribe`, err);
     }
   }
 
@@ -405,31 +512,32 @@ class K93AnsBannerCard extends HTMLElement {
     try {
       const cfg = this._config || {};
       const limit = cfg.max_items ?? 50;
-      const isFiltered = Boolean(
-        (cfg.channels && cfg.channels.length) || (cfg.min_importance && cfg.min_importance !== "low")
-      );
-      const fetches = [
-        this._hass.callWS({
-          type: "k93_ans/list",
-          include_acknowledged: true,
-          limit,
-          channels: cfg.channels && cfg.channels.length ? cfg.channels : undefined,
-          channel_mode: cfg.channels_mode || "include",
-          min_importance: cfg.min_importance,
-        }),
-      ];
-      if (isFiltered) {
-        fetches.push(this._hass.callWS({ type: "k93_ans/list", include_acknowledged: true, limit }));
+      const filtered = Boolean(cfg.channels?.length || (cfg.min_importance && cfg.min_importance !== "low"));
+      const results = [await this._api.call("list", { include_acknowledged: true, limit })];
+      const more = [this._api.config()];
+      if (filtered) {
+        more.push(
+          this._api.call("list", {
+            include_acknowledged: true,
+            limit,
+            channels: cfg.channels?.length ? cfg.channels : undefined,
+            channel_mode: cfg.channels_mode || "include",
+            min_importance: cfg.min_importance || undefined,
+          })
+        );
       }
-      const results = await Promise.all(fetches);
+      if (!this._api.legacy) more.push(this._api.call("list", { outstanding_only: true }));
+      const [config, ...lists] = await Promise.all(more);
+      this._sentinelConfig = config;
       const merged = new Map();
-      for (const result of results) {
+      for (const result of [...results, ...lists]) {
         for (const record of result.notifications) merged.set(record.id, record);
       }
       this._notifications = [...merged.values()].sort((a, b) => (a.created < b.created ? 1 : -1));
+      this._lastTickerHtml = null;
       this._render();
     } catch (err) {
-      console.error("k93-ans-banner-card: failed to load notifications", err);
+      console.error(`${CARD_TAG}: failed to load notifications`, err);
     }
   }
 
@@ -471,8 +579,8 @@ class K93AnsBannerCard extends HTMLElement {
     const pulseSize = Math.max(1.1, Number(cfg.unacknowledged_pulse_size) || 1.8);
     const pulseSpeed = Math.max(0.3, Number(cfg.unacknowledged_pulse_speed) || 2);
     const pulseStyle = pulseColor
-      ? ` --k93-pulse-color: ${esc(pulseColor)}; --k93-pulse-scale: ${pulseSize};` +
-        ` --k93-pulse-duration: ${pulseSpeed}s; --k93-icon-bg: ${esc(background)};`
+      ? ` --sentinel-pulse-color: ${esc(pulseColor)}; --sentinel-pulse-scale: ${pulseSize};` +
+        ` --sentinel-pulse-duration: ${pulseSpeed}s; --sentinel-icon-bg: ${esc(background)};`
       : "";
     const iconHtml = icon
       ? `<ha-icon icon="${esc(icon)}" style="color: ${esc(color)}; --mdc-icon-size: ${Math.round(size * 0.6)}px;"></ha-icon>`
@@ -492,32 +600,11 @@ class K93AnsBannerCard extends HTMLElement {
     `;
   }
 
-  _channelColor(record) {
-    const hass = this._hass;
-    if (!hass) return "";
-    const cached = this._channelSensorId && hass.states[this._channelSensorId];
-    const channels = cached
-      ? cached.attributes.channels
-      : (() => {
-          for (const stateObj of Object.values(hass.states)) {
-            if (stateObj.entity_id.startsWith("sensor.k93_ans") && Array.isArray(stateObj.attributes?.channels)) {
-              this._channelSensorId = stateObj.entity_id;
-              return stateObj.attributes.channels;
-            }
-          }
-          return null;
-        })();
-    if (!Array.isArray(channels)) return "";
-    const recordChannel = String(record.channel || "").toLowerCase();
-    const match = channels.find((c) => String(c.key).toLowerCase() === recordChannel);
-    return (match && match.color) || "";
-  }
-
   _tickerItemHtml(record, locale, lang) {
     const icon = record.icon || "mdi:bell-outline";
-    const channelColor = this._channelColor(record);
+    const color = channelColor(this._sentinelConfig, record);
     const iconHtml = icon.startsWith("mdi:")
-      ? `<ha-icon class="ticker-icon" icon="${esc(icon)}"${channelColor ? ` style="color: ${esc(channelColor)};"` : ""}></ha-icon>`
+      ? `<ha-icon class="ticker-icon" icon="${esc(icon)}"${color ? ` style="color: ${esc(color)};"` : ""}></ha-icon>`
       : `<img class="ticker-icon-img" src="${esc(icon)}" alt="" />`;
     return (
       `<span class="ticker-item">${iconHtml}` +
@@ -546,9 +633,15 @@ class K93AnsBannerCard extends HTMLElement {
     const effectsEnabled = cfg.unacknowledged_effects !== false;
     const hasUnacknowledged = effectsEnabled && unacknowledged.length > 0;
     const iconHtml = this._titleIconHtml(hasUnacknowledged, effectsEnabled ? unacknowledged.length : 0);
-    const perChannelImportance = perChannelImportanceFromConfig(cfg);
+    const filter = {
+      channels: cfg.channels,
+      mode: cfg.channels_mode,
+      minImportance: cfg.min_importance,
+      channelImportance: prefixedConfigMap(cfg, CHANNEL_IMPORTANCE_PREFIX),
+      channelLabels: prefixedConfigMap(cfg, CHANNEL_LABELS_PREFIX),
+    };
     const items = all
-      .filter((n) => matchesFilter(n, cfg.channels, cfg.min_importance, cfg.channels_mode, perChannelImportance))
+      .filter((n) => matchesFilter(n, filter))
       .slice(0, cfg.ticker_limit ?? 10);
 
     if (!items.length) {
@@ -565,10 +658,10 @@ class K93AnsBannerCard extends HTMLElement {
     const { weight: fontWeight, style: fontStyle } = fontStyleToCss(cfg.ticker_font_style);
     const trackStyle =
       `animation-duration: ${duration}s; font-size: ${fontSize}em;` +
-      ` --k93-ticker-icon-scale: ${iconScale};` +
-      ` --k93-ticker-font-weight: ${fontWeight}; --k93-ticker-font-style: ${fontStyle};` +
-      (cfg.ticker_text_color ? ` --k93-ticker-text-color: ${esc(cfg.ticker_text_color)};` : "") +
-      (cfg.ticker_font_family ? ` --k93-ticker-font-family: ${esc(cfg.ticker_font_family)};` : "");
+      ` --sentinel-ticker-icon-scale: ${iconScale};` +
+      ` --sentinel-ticker-font-weight: ${fontWeight}; --sentinel-ticker-font-style: ${fontStyle};` +
+      (cfg.ticker_text_color ? ` --sentinel-ticker-text-color: ${esc(cfg.ticker_text_color)};` : "") +
+      (cfg.ticker_font_family ? ` --sentinel-ticker-font-family: ${esc(cfg.ticker_font_family)};` : "");
     const manualScroll = Boolean(cfg.ticker_manual_scroll);
 
     return `
@@ -647,54 +740,54 @@ class K93AnsBannerCard extends HTMLElement {
           position: absolute;
           inset: 0;
           border-radius: 999px;
-          background: var(--k93-pulse-color);
-          animation: k93-radar-ping var(--k93-pulse-duration, 2s) linear infinite;
+          background: var(--sentinel-pulse-color);
+          animation: sentinel-radar-ping var(--sentinel-pulse-duration, 2s) linear infinite;
           animation-fill-mode: backwards;
           will-change: transform, opacity;
         }
         .title-icon.pulsing.effect-radar::after {
-          animation-delay: calc(var(--k93-pulse-duration, 2s) / 2);
+          animation-delay: calc(var(--sentinel-pulse-duration, 2s) / 2);
         }
-        @keyframes k93-radar-ping {
+        @keyframes sentinel-radar-ping {
           0% { transform: scale(1); opacity: 0.6; }
-          100% { transform: scale(var(--k93-pulse-scale, 1.8)); opacity: 0; }
+          100% { transform: scale(var(--sentinel-pulse-scale, 1.8)); opacity: 0; }
         }
         .title-icon.pulsing.effect-glow::before {
           content: "";
           position: absolute;
           inset: -6px;
           border-radius: 999px;
-          background: var(--k93-pulse-color);
+          background: var(--sentinel-pulse-color);
           filter: blur(6px);
-          animation: k93-glow-pulse var(--k93-pulse-duration, 2s) ease-in-out infinite;
+          animation: sentinel-glow-pulse var(--sentinel-pulse-duration, 2s) ease-in-out infinite;
         }
-        @keyframes k93-glow-pulse {
+        @keyframes sentinel-glow-pulse {
           0%, 100% { opacity: 0.25; }
           50% { opacity: 0.75; }
         }
         .title-icon.pulsing.effect-flash {
-          animation: k93-flash-pulse var(--k93-pulse-duration, 2s) ease-in-out infinite;
+          animation: sentinel-flash-pulse var(--sentinel-pulse-duration, 2s) ease-in-out infinite;
         }
-        @keyframes k93-flash-pulse {
-          0%, 100% { background: var(--k93-icon-bg, transparent); }
-          50% { background: var(--k93-pulse-color); }
+        @keyframes sentinel-flash-pulse {
+          0%, 100% { background: var(--sentinel-icon-bg, transparent); }
+          50% { background: var(--sentinel-pulse-color); }
         }
         .title-icon.pulsing.effect-outline::before {
           content: "";
           position: absolute;
           inset: -3px;
           border-radius: 999px;
-          border: 2px solid var(--k93-pulse-color);
-          animation: k93-outline-pulse var(--k93-pulse-duration, 2s) ease-in-out infinite;
+          border: 2px solid var(--sentinel-pulse-color);
+          animation: sentinel-outline-pulse var(--sentinel-pulse-duration, 2s) ease-in-out infinite;
         }
-        @keyframes k93-outline-pulse {
+        @keyframes sentinel-outline-pulse {
           0%, 100% { opacity: 0.3; }
           50% { opacity: 1; }
         }
         .title-icon.pulsing.effect-shake {
-          animation: k93-shake var(--k93-pulse-duration, 2s) ease-in-out infinite;
+          animation: sentinel-shake var(--sentinel-pulse-duration, 2s) ease-in-out infinite;
         }
-        @keyframes k93-shake {
+        @keyframes sentinel-shake {
           0%, 100% { transform: rotate(0deg); }
           10% { transform: rotate(-12deg); }
           20% { transform: rotate(10deg); }
@@ -729,15 +822,15 @@ class K93AnsBannerCard extends HTMLElement {
         .ticker-track {
           display: inline-block;
           white-space: nowrap;
-          color: var(--k93-ticker-text-color, var(--primary-text-color));
-          font-family: var(--k93-ticker-font-family, inherit);
-          font-weight: var(--k93-ticker-font-weight, normal);
-          font-style: var(--k93-ticker-font-style, normal);
+          color: var(--sentinel-ticker-text-color, var(--primary-text-color));
+          font-family: var(--sentinel-ticker-font-family, inherit);
+          font-weight: var(--sentinel-ticker-font-weight, normal);
+          font-style: var(--sentinel-ticker-font-style, normal);
           line-height: 1.4;
           will-change: transform;
         }
         .ticker-track.auto-scroll {
-          animation-name: k93-ticker;
+          animation-name: sentinel-ticker;
           animation-timing-function: linear;
           animation-iteration-count: infinite;
         }
@@ -754,19 +847,19 @@ class K93AnsBannerCard extends HTMLElement {
           line-height: 1;
         }
         .ticker-icon {
-          --mdc-icon-size: calc(1em * var(--k93-ticker-icon-scale, 1));
+          --mdc-icon-size: calc(1em * var(--sentinel-ticker-icon-scale, 1));
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: calc(1em * var(--k93-ticker-icon-scale, 1));
-          height: calc(1em * var(--k93-ticker-icon-scale, 1));
-          color: var(--k93-ticker-text-color, var(--primary-text-color));
+          width: calc(1em * var(--sentinel-ticker-icon-scale, 1));
+          height: calc(1em * var(--sentinel-ticker-icon-scale, 1));
+          color: var(--sentinel-ticker-text-color, var(--primary-text-color));
           flex-shrink: 0;
         }
         .ticker-icon-img {
           display: inline-block;
-          width: calc(1em * var(--k93-ticker-icon-scale, 1));
-          height: calc(1em * var(--k93-ticker-icon-scale, 1));
+          width: calc(1em * var(--sentinel-ticker-icon-scale, 1));
+          height: calc(1em * var(--sentinel-ticker-icon-scale, 1));
           border-radius: 50%;
           object-fit: cover;
           flex-shrink: 0;
@@ -778,7 +871,7 @@ class K93AnsBannerCard extends HTMLElement {
           margin: 0 12px;
           opacity: 0.5;
         }
-        @keyframes k93-ticker {
+        @keyframes sentinel-ticker {
           from { transform: translateX(0); }
           to { transform: translateX(-50%); }
         }
@@ -867,77 +960,76 @@ class K93AnsBannerCard extends HTMLElement {
   }
 
   static getConfigElement() {
-    return document.createElement("k93-ans-banner-card-editor");
+    return document.createElement(`${CARD_TAG}-editor`);
   }
 }
 
-class K93AnsBannerCardEditor extends HTMLElement {
+class SentinelBannerCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this._api = new SentinelApi();
+    this._sentinelConfig = null;
+  }
+
   setConfig(config) {
     this._config = config;
     this._updateForm();
   }
 
   set hass(hass) {
+    const first = !this._hass;
     this._hass = hass;
+    this._api.hass = hass;
+    if (first) this._loadConfig();
     this._updateForm();
+  }
+
+  async _loadConfig() {
+    try {
+      this._sentinelConfig = await this._api.config();
+      this._updateForm();
+    } catch (err) {
+      console.error(`${CARD_TAG}-editor: failed to load channels`, err);
+    }
   }
 
   connectedCallback() {
     if (!this._form) {
       this._form = document.createElement("ha-form");
-      this._form.computeLabel = (item) => {
-        if (item.name.startsWith(CHANNEL_IMPORTANCE_PREFIX)) {
-          const channelKey = item.name.slice(CHANNEL_IMPORTANCE_PREFIX.length);
-          const option = this._channelOptions().find((o) => o.value === channelKey);
-          return `${option ? option.label : channelKey}: minimum importance`;
-        }
-        return K93AnsBannerCardEditor.LABELS[item.name] || item.name;
-      };
+      this._form.computeLabel = (item) => this._label(item.name);
       this._form.addEventListener("value-changed", (ev) => {
         ev.stopPropagation();
         this._config = ev.detail.value;
         this.dispatchEvent(
-          new CustomEvent("config-changed", {
-            detail: { config: this._config },
-            bubbles: true,
-            composed: true,
-          })
+          new CustomEvent("config-changed", { detail: { config: this._config }, bubbles: true, composed: true })
         );
       });
       this.appendChild(this._form);
 
       const versionEl = document.createElement("div");
-      versionEl.textContent = `K93 ANS Banner Card v${CARD_VERSION}`;
-      versionEl.style.cssText =
-        "text-align: right; font-size: 0.75em; opacity: 0.5; padding: 4px 2px 0;";
+      versionEl.textContent = `Sentinel Banner Card v${CARD_VERSION}`;
+      versionEl.style.cssText = "text-align: right; font-size: 0.75em; opacity: 0.5; padding: 4px 2px 0;";
       this.appendChild(versionEl);
     }
     this._updateForm();
   }
 
-  _channelOptions() {
-    const hass = this._hass;
-    if (hass) {
-      const cached = this._channelSensorId && hass.states[this._channelSensorId];
-      const channels = cached
-        ? cached.attributes.channels
-        : (() => {
-            for (const stateObj of Object.values(hass.states)) {
-              if (stateObj.entity_id.startsWith("sensor.k93_ans") && Array.isArray(stateObj.attributes?.channels)) {
-                this._channelSensorId = stateObj.entity_id;
-                return stateObj.attributes.channels;
-              }
-            }
-            return null;
-          })();
-      if (Array.isArray(channels)) {
-        return channels.map((c) => ({
-          value: c.key,
-          label: c.enabled === false ? `${c.name} (${c.key}, disabled)` : `${c.name} (${c.key})`,
-        }));
+  _label(name) {
+    for (const [prefix, suffix] of [
+      [CHANNEL_IMPORTANCE_PREFIX, "minimum importance"],
+      [CHANNEL_LABELS_PREFIX, "labels (empty = all)"],
+    ]) {
+      if (name.startsWith(prefix)) {
+        const key = name.slice(prefix.length);
+        const option = channelOptions(this._sentinelConfig).find((o) => o.value === key);
+        return `${option ? option.label : key}: ${suffix}`;
       }
     }
-    return BUILTIN_CHANNEL_KEYS.map((key) => ({ value: key, label: key }));
+    return SentinelBannerCardEditor.LABELS[name] || name;
+  }
+
+  _channelOptions() {
+    return channelOptions(this._sentinelConfig);
   }
 
   _schema() {
@@ -972,10 +1064,17 @@ class K93AnsBannerCardEditor extends HTMLElement {
     const selectedChannels = (this._config?.channels_mode || "include") !== "exclude"
       ? (this._config?.channels || [])
       : [];
-    const perChannelImportanceFields = selectedChannels.map((channelKey) => ({
-      name: `${CHANNEL_IMPORTANCE_PREFIX}${channelKey}`,
-      selector: perChannelImportanceSelector,
-    }));
+    const perChannelImportanceFields = selectedChannels.flatMap((channelKey) => {
+      const fields = [{ name: `${CHANNEL_IMPORTANCE_PREFIX}${channelKey}`, selector: perChannelImportanceSelector }];
+      const labels = labelOptions(this._sentinelConfig, channelKey);
+      if (labels.length) {
+        fields.push({
+          name: `${CHANNEL_LABELS_PREFIX}${channelKey}`,
+          selector: { select: { options: labels, multiple: true, custom_value: true } },
+        });
+      }
+      return fields;
+    });
 
     return [
       {
@@ -1146,7 +1245,7 @@ class K93AnsBannerCardEditor extends HTMLElement {
   }
 }
 
-K93AnsBannerCardEditor.LABELS = {
+SentinelBannerCardEditor.LABELS = {
   group_title_icon: "Title icon",
   group_unacknowledged: "Unacknowledged indicator",
   group_filtering: "Notifications & filtering",
@@ -1190,12 +1289,14 @@ K93AnsBannerCardEditor.LABELS = {
   tap_action: "Tap action",
 };
 
-customElements.define("k93-ans-banner-card", K93AnsBannerCard);
-customElements.define("k93-ans-banner-card-editor", K93AnsBannerCardEditor);
+defineElement(CARD_TAG, SentinelBannerCard);
+defineElement(`${CARD_TAG}-editor`, SentinelBannerCardEditor);
+defineElement(LEGACY_CARD_TAG, class extends SentinelBannerCard {});
+defineElement(`${LEGACY_CARD_TAG}-editor`, class extends SentinelBannerCardEditor {});
 
 window.customCards = window.customCards || [];
 window.customCards.push({
-  type: "k93-ans-banner-card",
-  name: "K93 ANS Banner Card",
-  description: "A dedicated scrolling notification banner for the k93_ans integration, with no history/list sections.",
+  type: CARD_TAG,
+  name: "Sentinel Banner Card",
+  description: "A scrolling notification banner for the Sentinel integration, filterable by channel and label.",
 });
