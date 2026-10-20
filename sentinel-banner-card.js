@@ -1,7 +1,6 @@
 
-const CARD_VERSION = "0.2.0";
+const CARD_VERSION = "0.2.1";
 const CARD_TAG = "sentinel-banner-card";
-const LEGACY_CARD_TAG = "k93-ans-banner-card";
 
 const IMPORTANCE_LEVELS = ["low", "normal", "high", "critical"];
 const BUILTIN_CHANNEL_KEYS = ["info", "alert", "event", "reminder", "security", "system", "chat"];
@@ -1291,8 +1290,6 @@ SentinelBannerCardEditor.LABELS = {
 
 defineElement(CARD_TAG, SentinelBannerCard);
 defineElement(`${CARD_TAG}-editor`, SentinelBannerCardEditor);
-defineElement(LEGACY_CARD_TAG, class extends SentinelBannerCard {});
-defineElement(`${LEGACY_CARD_TAG}-editor`, class extends SentinelBannerCardEditor {});
 
 window.customCards = window.customCards || [];
 window.customCards.push({
