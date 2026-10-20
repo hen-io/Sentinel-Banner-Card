@@ -1,5 +1,5 @@
 
-const CARD_VERSION = "0.2.1";
+const CARD_VERSION = "0.2.2";
 const CARD_TAG = "sentinel-banner-card";
 
 const IMPORTANCE_LEVELS = ["low", "normal", "high", "critical"];
@@ -320,6 +320,9 @@ class SentinelBannerCard extends HTMLElement {
       tap_action: { action: "none" },
       ...config,
     };
+    const query = JSON.stringify(this._query());
+    if (this._subscribed && query !== this._lastQuery) this._fetchList();
+    this._lastQuery = query;
     this._render();
   }
 
@@ -507,31 +510,32 @@ class SentinelBannerCard extends HTMLElement {
     }
   }
 
+  _query() {
+    const cfg = this._config || {};
+    const query = { include_acknowledged: true, limit: Math.max(1, Number(cfg.max_items) || 50) };
+    if (cfg.channels?.length) {
+      query.channels = cfg.channels;
+      query.channel_mode = cfg.channels_mode || "include";
+    }
+    const thresholds = [cfg.min_importance || "low", ...Object.values(prefixedConfigMap(cfg, CHANNEL_IMPORTANCE_PREFIX))];
+    const lowest = thresholds.reduce((a, b) => (importanceRank(b) < importanceRank(a) ? b : a));
+    if (lowest !== "low") query.min_importance = lowest;
+    return query;
+  }
+
   async _fetchList() {
+    const token = (this._fetchToken = (this._fetchToken || 0) + 1);
     try {
-      const cfg = this._config || {};
-      const limit = cfg.max_items ?? 50;
-      const filtered = Boolean(cfg.channels?.length || (cfg.min_importance && cfg.min_importance !== "low"));
-      const results = [await this._api.call("list", { include_acknowledged: true, limit })];
-      const more = [this._api.config()];
-      if (filtered) {
-        more.push(
-          this._api.call("list", {
-            include_acknowledged: true,
-            limit,
-            channels: cfg.channels?.length ? cfg.channels : undefined,
-            channel_mode: cfg.channels_mode || "include",
-            min_importance: cfg.min_importance || undefined,
-          })
-        );
-      }
-      if (!this._api.legacy) more.push(this._api.call("list", { outstanding_only: true }));
-      const [config, ...lists] = await Promise.all(more);
+      const query = this._query();
+      const first = await this._api.call("list", query);
+      const extra = this._api.legacy
+        ? this._api.call("list", { include_acknowledged: true, limit: query.limit })
+        : this._api.call("list", { outstanding_only: true });
+      const [config, more] = await Promise.all([this._api.config(), extra]);
+      if (token !== this._fetchToken) return;
       this._sentinelConfig = config;
       const merged = new Map();
-      for (const result of [...results, ...lists]) {
-        for (const record of result.notifications) merged.set(record.id, record);
-      }
+      for (const record of [...first.notifications, ...more.notifications]) merged.set(record.id, record);
       this._notifications = [...merged.values()].sort((a, b) => (a.created < b.created ? 1 : -1));
       this._lastTickerHtml = null;
       this._render();
